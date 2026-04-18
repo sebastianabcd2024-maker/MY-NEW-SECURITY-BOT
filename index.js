@@ -10,7 +10,7 @@ const client = new Client({
     ] 
 });
 
-const APP_ID = "TU_NUEVO_APP_ID_AQUI"; // RECUERDA CAMBIAR ESTO
+const APP_ID = "1491876597903655082"; // RECUERDA CAMBIAR ESTO
 
 const getDB = () => {
     if (!fs.existsSync('./security_db.json')) fs.writeFileSync('./security_db.json', JSON.stringify({}));
