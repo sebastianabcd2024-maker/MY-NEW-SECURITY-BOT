@@ -1,8 +1,10 @@
 const { 
-    Client, GatewayIntentBits, Events, EmbedBuilder, ActionRowBuilder, 
-    ButtonBuilder, ButtonStyle, PermissionFlagsBits, REST, Routes 
+    Client, GatewayIntentBits, Events, EmbedBuilder, PermissionFlagsBits, REST, Routes 
 } = require('discord.js');
-const fs = require('fs');
+const { createClient } = require('@supabase/supabase-js');
+
+// --- 1. CLOUD CONNECTION (SUPABASE) ---
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
 const client = new Client({ 
     intents: [
@@ -15,140 +17,148 @@ const client = new Client({
 
 const APP_ID = "1495239262579195986"; 
 
-const getDB = () => {
-    if (!fs.existsSync('./security_db.json')) fs.writeFileSync('./security_db.json', JSON.stringify({}));
-    return JSON.parse(fs.readFileSync('./security_db.json', 'utf8'));
-};
-const saveDB = (data) => fs.writeFileSync('./security_db.json', JSON.stringify(data, null, 2));
-
+// --- 2. GLOBAL COMMAND REGISTRATION ---
 client.once(Events.ClientReady, async () => {
-    console.log(`🛡️ Security Manager v1.9 | Complete Moderation Suite Online`);
+    console.log(`🛡️ Warden Systems v2.1 | Global Cloud Core Online`);
     
     const commands = [
         // Moderation
-        { name: 'ban', description: 'Ban a user', default_member_permissions: PermissionFlagsBits.BanMembers.toString(), options: [{ name: 'user', type: 6, description: 'Target', required: true }, { name: 'reason', type: 3, description: 'Reason' }] },
-        { name: 'unban', description: 'Unban a user by ID', default_member_permissions: PermissionFlagsBits.BanMembers.toString(), options: [{ name: 'user_id', type: 3, description: 'User ID to unban', required: true }, { name: 'reason', type: 3, description: 'Reason' }] },
-        { name: 'kick', description: 'Kick a user', default_member_permissions: PermissionFlagsBits.KickMembers.toString(), options: [{ name: 'user', type: 6, description: 'Target', required: true }, { name: 'reason', type: 3, description: 'Reason' }] },
-        { name: 'timeout', description: 'Mute a user', default_member_permissions: PermissionFlagsBits.ModerateMembers.toString(), options: [{ name: 'user', type: 6, description: 'Target', required: true }, { name: 'minutes', type: 4, description: 'Duration', required: true }, { name: 'reason', type: 3, description: 'Reason' }] },
-        { name: 'unmute', description: 'Remove timeout', default_member_permissions: PermissionFlagsBits.ModerateMembers.toString(), options: [{ name: 'user', type: 6, description: 'Target', required: true }, { name: 'reason', type: 3, description: 'Reason' }] },
-        { name: 'purge', description: 'Delete messages', default_member_permissions: PermissionFlagsBits.ManageMessages.toString(), options: [{ name: 'amount', type: 4, description: 'Amount', required: true }] },
-        // Roles
-        { name: 'role-give', description: 'Assign a role', default_member_permissions: PermissionFlagsBits.ManageRoles.toString(), options: [{ name: 'user', type: 6, description: 'Target', required: true }, { name: 'role', type: 8, description: 'Role', required: true }] },
-        { name: 'role-take', description: 'Remove a role', default_member_permissions: PermissionFlagsBits.ManageRoles.toString(), options: [{ name: 'user', type: 6, description: 'Target', required: true }, { name: 'role', type: 8, description: 'Role', required: true }] },
-        // Management
-        { name: 'lock', description: 'Lock channel', default_member_permissions: PermissionFlagsBits.ManageChannels.toString() },
-        { name: 'unlock', description: 'Unlock channel', default_member_permissions: PermissionFlagsBits.ManageChannels.toString() },
-        { name: 'warn', description: 'Issue warning', options: [{ name: 'user', type: 6, description: 'Target', required: true }, { name: 'reason', type: 3, description: 'Reason', required: true }] },
-        { name: 'infractions', description: 'View history', options: [{ name: 'user', type: 6, description: 'Target', required: true }] },
-        { name: 'embed', description: 'Create embed', options: [{ name: 'description', type: 3, description: 'Content', required: true }, { name: 'title', type: 3, description: 'Title' }, { name: 'color', type: 3, description: 'Hex' }] },
-        { name: 'echo', description: 'Repeat message', options: [{ name: 'text', type: 3, description: 'Text', required: true }] },
-        { name: 'slowmode', description: 'Set slowmode', options: [{ name: 'seconds', type: 4, description: 'Seconds', required: true }] }
+        { name: 'ban', description: 'Ban a user from the server', default_member_permissions: PermissionFlagsBits.BanMembers.toString(), options: [{ name: 'user', type: 6, description: 'Target user', required: true }, { name: 'reason', type: 3, description: 'Reason for the ban' }] },
+        { name: 'unban', description: 'Unban a user via ID', default_member_permissions: PermissionFlagsBits.BanMembers.toString(), options: [{ name: 'user_id', type: 3, description: 'User ID', required: true }, { name: 'reason', type: 3, description: 'Reason for the unban' }] },
+        { name: 'kick', description: 'Kick a user from the server', default_member_permissions: PermissionFlagsBits.KickMembers.toString(), options: [{ name: 'user', type: 6, description: 'Target user', required: true }, { name: 'reason', type: 3, description: 'Reason for the kick' }] },
+        { name: 'timeout', description: 'Temporarily mute a user', default_member_permissions: PermissionFlagsBits.ModerateMembers.toString(), options: [{ name: 'user', type: 6, description: 'Target', required: true }, { name: 'minutes', type: 4, description: 'Duration in minutes', required: true }, { name: 'reason', type: 3, description: 'Reason' }] },
+        { name: 'unmute', description: 'Remove active timeout', default_member_permissions: PermissionFlagsBits.ModerateMembers.toString(), options: [{ name: 'user', type: 6, description: 'Target', required: true }] },
+        
+        // Cloud Infrastructure (Supabase)
+        { name: 'warn', description: 'Issue a cloud-synced warning', options: [{ name: 'user', type: 6, description: 'Target', required: true }, { name: 'reason', type: 3, description: 'Reason', required: true }] },
+        { name: 'infractions', description: 'View user history from the cloud', options: [{ name: 'user', type: 6, description: 'Target', required: true }] },
+        
+        // Roles & Utilities
+        { name: 'role-give', description: 'Assign a role to a user', default_member_permissions: PermissionFlagsBits.ManageRoles.toString(), options: [{ name: 'user', type: 6, description: 'Target', required: true }, { name: 'role', type: 8, description: 'Role to add', required: true }] },
+        { name: 'role-take', description: 'Remove a role from a user', default_member_permissions: PermissionFlagsBits.ManageRoles.toString(), options: [{ name: 'user', type: 6, description: 'Target', required: true }, { name: 'role', type: 8, description: 'Role to remove', required: true }] },
+        { name: 'purge', description: 'Delete a specific amount of messages', default_member_permissions: PermissionFlagsBits.ManageMessages.toString(), options: [{ name: 'amount', type: 4, description: 'Amount of messages', required: true }] },
+        { name: 'lock', description: 'Lock the current channel', default_member_permissions: PermissionFlagsBits.ManageChannels.toString() },
+        { name: 'unlock', description: 'Unlock the current channel', default_member_permissions: PermissionFlagsBits.ManageChannels.toString() },
+        
+        // Professional Branding & Tools
+        { 
+            name: 'embed', 
+            description: 'Create a professional announcement', 
+            options: [
+                { name: 'description', type: 3, description: 'Main content', required: true },
+                { name: 'title', type: 3, description: 'Embed title' },
+                { name: 'color', type: 3, description: 'Hex Color (e.g. #ffffff)' },
+                { name: 'footer', type: 3, description: 'Footer text' },
+                { name: 'image', type: 3, description: 'Image/Thumbnail URL' }
+            ] 
+        },
+        { name: 'echo', description: 'Make the bot speak', options: [{ name: 'text', type: 3, description: 'Message content', required: true }] },
+        { name: 'slowmode', description: 'Set channel slowmode', options: [{ name: 'seconds', type: 4, description: 'Seconds', required: true }] }
     ];
 
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-    try { await rest.put(Routes.applicationCommands(APP_ID), { body: commands }); } catch (e) { console.error(e); }
+    try { 
+        await rest.put(Routes.applicationCommands(APP_ID), { body: commands }); 
+        console.log("✅ Warden Systems global commands synced.");
+    } catch (e) { console.error(e); }
 });
 
+// --- 3. INTERACTION HANDLER ---
 client.on(Events.InteractionCreate, async interaction => {
     if (!interaction.isChatInputCommand()) return;
-
-    const db = getDB();
-    const config = db[interaction.guildId] || { warns: {} };
     const { commandName, options, guild, channel } = interaction;
 
-    // --- BAN & UNBAN ---
-    if (commandName === 'ban' || commandName === 'unban') {
-        await interaction.deferReply();
-        const reason = options.getString('reason') || 'No reason provided.';
-        
-        try {
-            if (commandName === 'ban') {
-                const target = options.getMember('user');
-                if (!target || !target.manageable) return interaction.editReply("❌ Cannot moderate this user.");
-                await target.ban({ reason });
-                const embed = new EmbedBuilder().setTitle('🛑 Security Action: BAN').setColor('#ff0000').addFields({ name: 'User', value: `${target.user.tag}` }, { name: 'Reason', value: reason }).setTimestamp();
-                return interaction.editReply({ embeds: [embed] });
-            } else {
-                const userId = options.getString('user_id');
-                await guild.members.unban(userId, reason);
-                const embed = new EmbedBuilder().setTitle('✅ Security Action: UNBAN').setColor('#00ff7f').setDescription(`User with ID **${userId}** has been unbanned.`).addFields({ name: 'Reason', value: reason }).setTimestamp();
-                return interaction.editReply({ embeds: [embed] });
-            }
-        } catch (e) { return interaction.editReply("❌ Operation failed. Verify the ID or my permissions."); }
-    }
-
-    // --- TIMEOUT & UNMUTE ---
-    if (commandName === 'timeout' || commandName === 'unmute') {
-        await interaction.deferReply();
-        const target = options.getMember('user');
-        const reason = options.getString('reason') || 'No reason provided.';
-        if (!target || !target.manageable) return interaction.editReply("❌ Cannot moderate this user.");
-        try {
-            await target.timeout(commandName === 'timeout' ? options.getInteger('minutes') * 60000 : null, reason);
-            const embed = new EmbedBuilder().setTitle(`🛑 Security Action: ${commandName.toUpperCase()}`).setColor(commandName === 'timeout' ? '#ffaa00' : '#00ff7f').addFields({ name: 'User', value: `${target.user.tag}` }, { name: 'Reason', value: reason }).setTimestamp();
-            return interaction.editReply({ embeds: [embed] });
-        } catch (e) { return interaction.editReply("❌ Operation failed."); }
-    }
-
-    // --- OTRAS FUNCIONES ---
-    if (commandName === 'kick') {
-        await interaction.deferReply();
-        const target = options.getMember('user');
-        if (!target || !target.manageable) return interaction.editReply("❌ Cannot kick this user.");
-        await target.kick(options.getString('reason') || 'No reason');
-        return interaction.editReply({ embeds: [new EmbedBuilder().setTitle('🛑 Security Action: KICK').setColor('#ff4500').setDescription(`**${target.user.tag}** has been kicked.`)] });
-    }
-
-    if (commandName === 'role-give' || commandName === 'role-take') {
-        await interaction.deferReply();
-        const target = options.getMember('user');
-        const role = options.getRole('role');
-        if (role.position >= guild.members.me.roles.highest.position) return interaction.editReply("❌ Role is too high.");
-        if (commandName === 'role-give') await target.roles.add(role); else await target.roles.remove(role);
-        return interaction.editReply({ embeds: [new EmbedBuilder().setTitle('🎭 Role Update').setColor('#00ffff').setDescription(`Role **${role.name}** updated for **${target.user.tag}**.`)] });
-    }
-
-    if (commandName === 'purge') {
-        await channel.bulkDelete(options.getInteger('amount'), true);
-        return interaction.reply({ content: '🧹 Purge complete.', ephemeral: true });
-    }
-
-    if (commandName === 'lock' || commandName === 'unlock') {
-        const isLock = commandName === 'lock';
-        await channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: !isLock });
-        return interaction.reply(`🔒 Channel **${isLock ? 'LOCKED' : 'UNLOCKED'}**.`);
-    }
-
+    // --- CLOUD OPERATIONS (WARN / INFRACTIONS) ---
     if (commandName === 'warn') {
         const target = options.getUser('user');
-        if (!config.warns) config.warns = {};
-        if (!config.warns[target.id]) config.warns[target.id] = [];
-        config.warns[target.id].push({ reason: options.getString('reason'), date: new Date().toLocaleString('es-CO') });
-        db[interaction.guildId] = config; saveDB(db);
-        return interaction.reply(`⚠️ **Warning issued to ${target.tag}**.`);
+        const reason = options.getString('reason');
+        const { error } = await supabase.from('infractions').insert([{ user_id: target.id, guild_id: guild.id, reason: reason }]);
+        if (error) return interaction.reply({ content: '❌ Failed to connect to Nube guardiana.', ephemeral: true });
+        return interaction.reply(`⚠️ **Warning issued to ${target.tag} (Cloud Synced)**.`);
     }
 
     if (commandName === 'infractions') {
         const target = options.getUser('user');
-        const list = config.warns?.[target.id] || [];
-        const embed = new EmbedBuilder().setTitle(`History: ${target.tag}`).setColor('#ffffff').setDescription(list.length ? list.map((w, i) => `**${i+1}.** [${w.date}] ${w.reason}`).join('\n') : '✅ Clean.');
+        const { data, error } = await supabase.from('infractions').select('*').eq('user_id', target.id).eq('guild_id', guild.id);
+        if (error) return interaction.reply('❌ Cloud Fetch Error.');
+        const embed = new EmbedBuilder().setTitle(`${target.tag}'s Record`).setColor('#ffffff')
+            .setDescription(data.length ? data.map((w, i) => `**${i+1}.** [${new Date(w.created_at).toLocaleDateString()}] ${w.reason}`).join('\n') : '✅ User has a clean record.');
         return interaction.reply({ embeds: [embed] });
     }
 
+    // --- MODERATION LOGIC ---
+    if (['ban', 'unban', 'kick', 'timeout', 'unmute'].includes(commandName)) {
+        await interaction.deferReply();
+        const reason = options.getString('reason') || 'No reason provided.';
+        try {
+            if (commandName === 'unban') {
+                await guild.members.unban(options.getString('user_id'), reason);
+                return interaction.editReply(`✅ User ID **${options.getString('user_id')}** has been unbanned.`);
+            }
+
+            const target = options.getMember('user');
+            if (!target.manageable) return interaction.editReply("❌ Permission denied: Hierarchy restriction.");
+            
+            if (commandName === 'ban') await target.ban({ reason });
+            else if (commandName === 'kick') await target.kick(reason);
+            else if (commandName === 'timeout') await target.timeout(options.getInteger('minutes') * 60000, reason);
+            else if (commandName === 'unmute') await target.timeout(null);
+
+            const embed = new EmbedBuilder().setTitle(`🛑 Action: ${commandName.toUpperCase()}`).setColor('#ff0000')
+                .addFields({ name: 'User', value: target.user.tag }, { name: 'Reason', value: reason }).setTimestamp();
+            return interaction.editReply({ embeds: [embed] });
+        } catch (e) { return interaction.editReply("❌ Operation failed. Check ID or permissions."); }
+    }
+
+    // --- ROLES & PERMISSIONS ---
+    if (commandName === 'role-give' || commandName === 'role-take') {
+        const target = options.getMember('user');
+        const role = options.getRole('role');
+        if (role.position >= guild.members.me.roles.highest.position) return interaction.reply("❌ Role position is too high.");
+        commandName === 'role-give' ? await target.roles.add(role) : await target.roles.remove(role);
+        return interaction.reply(`🎭 Role **${role.name}** updated for **${target.user.tag}**.`);
+    }
+
+    // --- CHANNEL MANAGEMENT ---
+    if (commandName === 'purge') {
+        const amount = options.getInteger('amount');
+        await channel.bulkDelete(amount, true);
+        return interaction.reply({ content: `🧹 Deleted ${amount} messages.`, ephemeral: true });
+    }
+
+    if (commandName === 'lock' || commandName === 'unlock') {
+        await channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: commandName === 'unlock' });
+        return interaction.reply(`🔒 Channel **${commandName.toUpperCase()}ED** successfully.`);
+    }
+
+    // --- PROFESSIONAL EMBED ENGINE ---
     if (commandName === 'embed') {
-        const embed = new EmbedBuilder().setDescription(options.getString('description')).setColor(options.getString('color') || '#ffffff');
-        if (options.getString('title')) embed.setTitle(options.getString('title'));
+        const desc = options.getString('description');
+        const title = options.getString('title');
+        const color = options.getString('color') || '#ffffff';
+        const footer = options.getString('footer');
+        const image = options.getString('image');
+
+        const embed = new EmbedBuilder()
+            .setDescription(desc)
+            .setColor(color.startsWith('#') ? color : `#${color}`);
+
+        if (title) embed.setTitle(title);
+        if (footer) embed.setFooter({ text: footer });
+        if (image) embed.setThumbnail(image);
+
         return interaction.reply({ embeds: [embed] });
     }
 
     if (commandName === 'echo') {
         await channel.send(options.getString('text'));
-        return interaction.reply({ content: 'Sent.', ephemeral: true });
+        return interaction.reply({ content: 'Message delivered.', ephemeral: true });
     }
 
     if (commandName === 'slowmode') {
-        await channel.setRateLimitPerUser(options.getInteger('seconds'));
-        return interaction.reply(`⏳ Slowmode: **${options.getInteger('seconds')}s**.`);
+        const sec = options.getInteger('seconds');
+        await channel.setRateLimitPerUser(sec);
+        return interaction.reply(`⏳ Slowmode set to **${sec}s**.`);
     }
 });
 
