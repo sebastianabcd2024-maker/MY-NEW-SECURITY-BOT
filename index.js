@@ -1,7 +1,6 @@
 const { 
     Client, GatewayIntentBits, Events, EmbedBuilder, ActionRowBuilder, 
-    ButtonBuilder, ButtonStyle, PermissionFlagsBits, REST, Routes, 
-    ChannelType 
+    ButtonBuilder, ButtonStyle, PermissionFlagsBits, REST, Routes 
 } = require('discord.js');
 const fs = require('fs');
 
@@ -16,220 +15,130 @@ const client = new Client({
 
 const APP_ID = "1495239262579195986"; 
 
-// --- BASE DE DATOS LOCAL ---
 const getDB = () => {
     if (!fs.existsSync('./security_db.json')) fs.writeFileSync('./security_db.json', JSON.stringify({}));
     return JSON.parse(fs.readFileSync('./security_db.json', 'utf8'));
 };
 const saveDB = (data) => fs.writeFileSync('./security_db.json', JSON.stringify(data, null, 2));
 
-const userMessages = new Map(); // Anti-Spam
-
 client.once(Events.ClientReady, async () => {
-    console.log(`🛡️ Warden Sentinel v1.3 | Online & Secure`);
+    console.log(`🛡️ Security Manager v1.6 | Global Edition Online`);
     
     const commands = [
         {
-            name: 'security-config',
-            description: 'Configure log channel',
-            default_member_permissions: PermissionFlagsBits.Administrator.toString(),
-            options: [{ name: 'log_channel', type: 7, description: 'Where to send alerts', required: true }]
-        },
-        {
-            name: 'toggle-module',
-            description: 'Enable/Disable security modules',
-            default_member_permissions: PermissionFlagsBits.Administrator.toString(),
+            name: 'embed',
+            description: 'Create a professional embed message',
+            default_member_permissions: PermissionFlagsBits.ManageMessages.toString(),
             options: [
-                { name: 'module', type: 3, description: 'Module', required: true, choices: [{ name: 'Anti-Links', value: 'anti_link' }, { name: 'Anti-Spam', value: 'anti_spam' }] },
-                { name: 'status', type: 5, description: 'True/False', required: true }
+                { name: 'description', type: 3, description: 'Main message content', required: true },
+                { name: 'title', type: 3, description: 'Embed title', required: false },
+                { name: 'color', type: 3, description: 'Hex Color (#ffffff)', required: false },
+                { name: 'footer', type: 3, description: 'Footer text', required: false }
             ]
         },
-        {
-            name: 'blacklist-word',
-            description: 'Manage server blacklisted words',
-            default_member_permissions: PermissionFlagsBits.ManageGuild.toString(),
-            options: [
-                { name: 'action', type: 3, description: 'Add or Remove', required: true, choices: [{name: 'add', value: 'add'}, {name: 'remove', value: 'remove'}] },
-                { name: 'word', type: 3, description: 'Word to ban/unban', required: true }
-            ]
-        },
-        {
-            name: 'warn',
-            description: 'Warn a user',
-            default_member_permissions: PermissionFlagsBits.ManageMessages.toString(),
-            options: [{ name: 'user', type: 6, description: 'Target', required: true }, { name: 'reason', type: 3, description: 'Reason', required: true }]
-        },
-        {
-            name: 'infractions',
-            description: 'Check user infraction history',
-            options: [{ name: 'user', type: 6, description: 'Target', required: true }]
-        },
-        {
-            name: 'timeout',
-            description: 'Mute a user',
-            default_member_permissions: PermissionFlagsBits.ModerateMembers.toString(),
-            options: [{ name: 'user', type: 6, description: 'Target', required: true }, { name: 'minutes', type: 4, description: 'Time', required: true }, { name: 'reason', type: 3, description: 'Reason' }]
-        },
-        {
-            name: 'kick',
-            description: 'Kick a user',
-            default_member_permissions: PermissionFlagsBits.KickMembers.toString(),
-            options: [{ name: 'user', type: 6, description: 'Target', required: true }, { name: 'reason', type: 3, description: 'Reason' }]
-        },
-        {
-            name: 'ban',
-            description: 'Ban a user',
-            default_member_permissions: PermissionFlagsBits.BanMembers.toString(),
-            options: [{ name: 'user', type: 6, description: 'Target', required: true }, { name: 'reason', type: 3, description: 'Reason' }]
-        },
-        {
-            name: 'echo',
-            description: 'Repeat message',
-            default_member_permissions: PermissionFlagsBits.ManageMessages.toString(),
-            options: [{ name: 'text', type: 3, description: 'Message', required: true }]
-        },
-        {
-            name: 'slowmode',
-            description: 'Set channel slowmode',
-            default_member_permissions: PermissionFlagsBits.ManageChannels.toString(),
-            options: [{ name: 'seconds', type: 4, description: 'Seconds', required: true }]
-        }
+        { name: 'ban', description: 'Ban a user from the server', default_member_permissions: PermissionFlagsBits.BanMembers.toString(), options: [{ name: 'user', type: 6, description: 'Target user', required: true }, { name: 'reason', type: 3, description: 'Reason for the ban' }] },
+        { name: 'kick', description: 'Kick a user from the server', default_member_permissions: PermissionFlagsBits.KickMembers.toString(), options: [{ name: 'user', type: 6, description: 'Target user', required: true }, { name: 'reason', type: 3, description: 'Reason for the kick' }] },
+        { name: 'timeout', description: 'Mute a user temporarily', default_member_permissions: PermissionFlagsBits.ModerateMembers.toString(), options: [{ name: 'user', type: 6, description: 'Target user', required: true }, { name: 'minutes', type: 4, description: 'Duration in minutes', required: true }, { name: 'reason', type: 3, description: 'Reason' }] },
+        { name: 'purge', description: 'Delete a bulk of messages', default_member_permissions: PermissionFlagsBits.ManageMessages.toString(), options: [{ name: 'amount', type: 4, description: 'Amount (1-100)', required: true }] },
+        { name: 'lock', description: 'Lock the current channel', default_member_permissions: PermissionFlagsBits.ManageChannels.toString() },
+        { name: 'unlock', description: 'Unlock the current channel', default_member_permissions: PermissionFlagsBits.ManageChannels.toString() },
+        { name: 'warn', description: 'Issue a warning to a user', options: [{ name: 'user', type: 6, description: 'Target user', required: true }, { name: 'reason', type: 3, description: 'Reason', required: true }] },
+        { name: 'infractions', description: 'View user infraction history', options: [{ name: 'user', type: 6, description: 'Target user', required: true }] },
+        { name: 'echo', description: 'Make the bot repeat a message', options: [{ name: 'text', type: 3, description: 'Message text', required: true }] },
+        { name: 'slowmode', description: 'Set channel slowmode', options: [{ name: 'seconds', type: 4, description: 'Seconds', required: true }] }
     ];
 
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     try { await rest.put(Routes.applicationCommands(APP_ID), { body: commands }); } catch (e) { console.error(e); }
 });
 
-// --- LÓGICA DE PROTECCIÓN (MENSAJES) ---
-client.on(Events.MessageCreate, async message => {
-    if (message.author.bot || !message.guild) return;
-    const db = getDB();
-    const config = db[message.guildId];
-    if (!config) return;
-
-    const isStaff = message.member.permissions.has(PermissionFlagsBits.ManageMessages);
-
-    // 1. Filtro de Palabras
-    const bannedWords = config.bannedWords || [];
-    if (bannedWords.some(w => message.content.toLowerCase().includes(w.toLowerCase())) && !isStaff) {
-        await message.delete().catch(() => {});
-        return message.channel.send(`🚫 <@${message.author.id}>, that word is prohibited.`).then(m => setTimeout(() => m.delete(), 3000));
-    }
-
-    // 2. Anti-Link
-    if (config.modules?.anti_link && !isStaff) {
-        if (/(discord\.gg\/|discord\.com\/invite\/)/gi.test(message.content)) {
-            await message.delete().catch(() => {});
-            return message.channel.send(`🔗 <@${message.author.id}>, invites are not allowed.`).then(m => setTimeout(() => m.delete(), 3000));
-        }
-    }
-
-    // 3. Anti-Spam
-    if (config.modules?.anti_spam && !isStaff) {
-        const now = Date.now();
-        const userData = userMessages.get(message.author.id) || { count: 0, last: now };
-        if (now - userData.last < 5000) userData.count++;
-        else userData.count = 1;
-        userData.last = now;
-        userMessages.set(message.author.id, userData);
-
-        if (userData.count > 5) {
-            await message.member.timeout(60000, "Spam detected").catch(() => {});
-            message.channel.send(`🔇 <@${message.author.id}> muted for 1m (Spam).`);
-            userMessages.delete(message.author.id);
-        }
-    }
-});
-
-// --- LÓGICA DE INTERACCIONES (COMANDOS) ---
 client.on(Events.InteractionCreate, async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
     const db = getDB();
-    const config = db[interaction.guildId] || { warns: {}, bannedWords: [], modules: {} };
-    const { commandName, options } = interaction;
+    const config = db[interaction.guildId] || { warns: {} };
+    const { commandName, options, channel } = interaction;
 
-    // COMANDOS DE CONFIGURACIÓN
-    if (commandName === 'security-config') {
-        config.logChannel = options.getChannel('log_channel').id;
-        db[interaction.guildId] = config; saveDB(db);
-        return interaction.reply({ content: '✅ Log channel updated.', ephemeral: true });
-    }
+    // --- MODERATION WITH PUBLIC EMBEDS ---
+    if (['kick', 'ban', 'timeout'].includes(commandName)) {
+        await interaction.deferReply();
+        const target = options.getMember('user');
+        const reason = options.getString('reason') || 'No reason provided.';
 
-    if (commandName === 'toggle-module') {
-        const mod = options.getString('module');
-        const stat = options.getBoolean('status');
-        if (!config.modules) config.modules = {};
-        config.modules[mod] = stat;
-        db[interaction.guildId] = config; saveDB(db);
-        return interaction.reply({ content: `✅ **${mod}** is now **${stat ? 'ON' : 'OFF'}**.`, ephemeral: true });
-    }
+        if (!target || !target.manageable) return interaction.editReply("❌ I cannot moderate this user. Check role hierarchy.");
 
-    if (commandName === 'blacklist-word') {
-        const action = options.getString('action');
-        const word = options.getString('word').toLowerCase();
-        if (!config.bannedWords) config.bannedWords = [];
-        if (action === 'add') { if (!config.bannedWords.includes(word)) config.bannedWords.push(word); }
-        else { config.bannedWords = config.bannedWords.filter(w => w !== word); }
-        db[interaction.guildId] = config; saveDB(db);
-        return interaction.reply({ content: `✅ Blacklist updated for: \`${word}\``, ephemeral: true });
-    }
+        const actionEmbed = new EmbedBuilder()
+            .setTitle(`🛑 Security Action: ${commandName.toUpperCase()}`)
+            .setColor(commandName === 'ban' ? '#ff0000' : '#ffaa00')
+            .addFields(
+                { name: 'User', value: `${target.user.tag}`, inline: true },
+                { name: 'Moderator', value: `${interaction.user.tag}`, inline: true },
+                { name: 'Reason', value: reason }
+            )
+            .setTimestamp();
 
-    // COMANDOS DE MODERACIÓN (USAN DEFER PARA EVITAR "APP DID NOT RESPOND")
-    if (['kick', 'ban', 'timeout', 'slowmode'].includes(commandName)) {
-        await interaction.deferReply({ ephemeral: true });
-        
         try {
-            if (commandName === 'kick' || commandName === 'ban') {
-                const target = options.getMember('user');
-                const reason = options.getString('reason') || 'No reason provided';
-                if (!target || !target.manageable) return interaction.editReply("❌ I cannot moderate this user (Check role hierarchy).");
-                
-                if (commandName === 'ban') await target.ban({ reason });
-                else await target.kick(reason);
-                return interaction.editReply(`✅ **${target.user.tag}** has been ${commandName}ed.`);
-            }
-
-            if (commandName === 'timeout') {
-                const target = options.getMember('user');
-                const mins = options.getInteger('minutes');
-                if (!target || !target.manageable) return interaction.editReply("❌ Cannot mute this user.");
-                await target.timeout(mins * 60000, options.getString('reason') || 'No reason');
-                return interaction.editReply(`✅ **${target.user.tag}** muted for ${mins} minutes.`);
-            }
-
-            if (commandName === 'slowmode') {
-                const sec = options.getInteger('seconds');
-                await interaction.channel.setRateLimitPerUser(sec);
-                return interaction.editReply(`⏳ Slowmode set to **${sec}s**.`);
-            }
+            if (commandName === 'ban') await target.ban({ reason });
+            else if (commandName === 'kick') await target.kick(reason);
+            else await target.timeout(options.getInteger('minutes') * 60000, reason);
+            
+            return interaction.editReply({ embeds: [actionEmbed] });
         } catch (e) {
-            return interaction.editReply("❌ Action failed. Check my permissions.");
+            return interaction.editReply("❌ Execution failed. Check my permissions.");
         }
     }
 
-    // HISTORIAL Y OTROS (RESPUESTA INMEDIATA)
+    // --- PURGE ---
+    if (commandName === 'purge') {
+        const amount = options.getInteger('amount');
+        if (amount < 1 || amount > 100) return interaction.reply({ content: 'Please choose a number between 1 and 100.', ephemeral: true });
+        await channel.bulkDelete(amount, true);
+        return interaction.reply({ content: `🧹 Deleted ${amount} messages.`, ephemeral: true });
+    }
+
+    // --- LOCK / UNLOCK ---
+    if (commandName === 'lock' || commandName === 'unlock') {
+        const isLock = commandName === 'lock';
+        await channel.permissionOverwrites.edit(interaction.guild.roles.everyone, { SendMessages: !isLock });
+        return interaction.reply(`🔒 Channel has been **${isLock ? 'LOCKED' : 'UNLOCKED'}**.`);
+    }
+
+    // --- CUSTOM EMBED ---
+    if (commandName === 'embed') {
+        const embed = new EmbedBuilder()
+            .setDescription(options.getString('description'))
+            .setColor(options.getString('color') || '#ffffff');
+        if (options.getString('title')) embed.setTitle(options.getString('title'));
+        if (options.getString('footer')) embed.setFooter({ text: options.getString('footer') });
+        return interaction.reply({ embeds: [embed] });
+    }
+
+    // --- WARNS & HISTORY ---
     if (commandName === 'warn') {
         const target = options.getUser('user');
-        const reason = options.getString('reason');
         if (!config.warns) config.warns = {};
         if (!config.warns[target.id]) config.warns[target.id] = [];
-        config.warns[target.id].push({ reason, date: new Date().toLocaleString('es-CO') });
+        config.warns[target.id].push({ reason: options.getString('reason'), date: new Date().toLocaleString('es-CO') });
         db[interaction.guildId] = config; saveDB(db);
-        return interaction.reply(`⚠️ **Warning added to ${target.tag}**. Total: ${config.warns[target.id].length}`);
+        return interaction.reply(`⚠️ **Warning issued to ${target.tag}**.`);
     }
 
     if (commandName === 'infractions') {
         const target = options.getUser('user');
         const list = config.warns?.[target.id] || [];
-        const embed = new EmbedBuilder().setTitle(`History: ${target.tag}`).setColor('#00ffff')
-            .setDescription(list.length ? list.map((w, i) => `**${i+1}.** [${w.date}] ${w.reason}`).join('\n') : '✅ Clean record.');
+        const embed = new EmbedBuilder().setTitle(`Infraction History: ${target.tag}`).setColor('#ffffff')
+            .setDescription(list.length ? list.map((w, i) => `**${i+1}.** [${w.date}] ${w.reason}`).join('\n') : '✅ Record is clean.');
         return interaction.reply({ embeds: [embed] });
     }
 
     if (commandName === 'echo') {
-        await interaction.channel.send(options.getString('text'));
-        return interaction.reply({ content: 'Sent!', ephemeral: true });
+        await channel.send(options.getString('text'));
+        return interaction.reply({ content: 'Message sent.', ephemeral: true });
+    }
+
+    if (commandName === 'slowmode') {
+        await channel.setRateLimitPerUser(options.getInteger('seconds'));
+        return interaction.reply(`⏳ Slowmode set to **${options.getInteger('seconds')}s**.`);
     }
 });
 
