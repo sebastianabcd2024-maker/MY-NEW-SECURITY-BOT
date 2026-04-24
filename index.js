@@ -1,132 +1,143 @@
 const { 
-    Client, GatewayIntentBits, Events, EmbedBuilder, PermissionFlagsBits, REST, Routes 
+    Client, GatewayIntentBits, Events, EmbedBuilder, PermissionFlagsBits, REST, Routes, ChannelType 
 } = require('discord.js');
 const { createClient } = require('@supabase/supabase-js');
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 const client = new Client({ 
-    intents: [
-        GatewayIntentBits.Guilds, 
-        GatewayIntentBits.GuildMessages, 
-        GatewayIntentBits.MessageContent, 
-        GatewayIntentBits.GuildMembers
-    ] 
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.GuildMembers] 
 });
 
 const APP_ID = "1495239262579195986"; 
 
-// --- 1. REGISTRATION ---
+// --- REGISTRO DE COMANDOS ---
 client.once(Events.ClientReady, async () => {
-    console.log(`🛡️ Warden Systems v2.3 | Audit & Security Core Online`);
+    console.log(`🛡️ Warden Systems v3.1 | Advanced Security Suite Online`);
     
     const commands = [
         { name: 'set-admin-role', description: 'Setup the authorized admin role', default_member_permissions: PermissionFlagsBits.Administrator.toString(), options: [{ name: 'role', type: 8, description: 'Role', required: true }] },
         { name: 'audit', description: 'Deep security analysis of a user', options: [{ name: 'user', type: 6, description: 'Target user', required: true }] },
+        { name: 'investigate', description: 'Isolate a user in a private channel', options: [{ name: 'user', type: 6, description: 'Target user', required: true }] },
+        { name: 'release', description: 'Close an investigation and delete the private channel' },
+        { name: 'server-stats', description: 'Tactical overview of the server' },
+        { name: 'role-give', description: 'Assign a role', options: [{ name: 'user', type: 6, description: 'Target', required: true }, { name: 'role', type: 8, description: 'Role', required: true }] },
+        { name: 'role-take', description: 'Remove a role', options: [{ name: 'user', type: 6, description: 'Target', required: true }, { name: 'role', type: 8, description: 'Role', required: true }] },
         { name: 'ban', description: 'Ban a user', options: [{ name: 'user', type: 6, description: 'Target', required: true }, { name: 'reason', type: 3, description: 'Reason' }] },
-        { name: 'unban', description: 'Unban a user ID', options: [{ name: 'user_id', type: 3, description: 'User ID', required: true }] },
-        { name: 'kick', description: 'Kick a user', options: [{ name: 'user', type: 6, description: 'Target', required: true }] },
-        { name: 'timeout', description: 'Mute user', options: [{ name: 'user', type: 6, description: 'Target', required: true }, { name: 'minutes', type: 4, description: 'Minutes', required: true }] },
-        { name: 'warn', description: 'Cloud-synced warning', options: [{ name: 'user', type: 6, description: 'Target', required: true }, { name: 'reason', type: 3, description: 'Reason', required: true }] },
-        { name: 'infractions', description: 'View user history', options: [{ name: 'user', type: 6, description: 'Target', required: true }] },
         { name: 'purge', description: 'Clear messages', options: [{ name: 'amount', type: 4, description: 'Amount', required: true }] },
         { name: 'lock', description: 'Lock channel' },
         { name: 'unlock', description: 'Unlock channel' },
-        { name: 'add-rank', description: 'Create rank', options: [{ name: 'name', type: 3, description: 'Name', required: true }] },
-        { name: 'color', description: 'Hex info', options: [{ name: 'hex', type: 3, description: 'Hex code', required: true }] },
-        { name: 'flip', description: 'Coin flip' },
-        { name: 'echo', description: 'Bot speak', options: [{ name: 'text', type: 3, description: 'Content', required: true }] },
-        { name: 'embed', description: 'Professional announcement', options: [{ name: 'description', type: 3, description: 'Content', required: true }, { name: 'title', type: 3, description: 'Title' }] }
+        { name: 'echo', description: 'Bot speak', options: [{ name: 'text', type: 3, description: 'Content', required: true }] }
     ];
 
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     try { await rest.put(Routes.applicationCommands(APP_ID), { body: commands }); } catch (e) { console.error(e); }
 });
 
-// --- 2. INTERACTION HANDLER ---
+// --- MANEJADOR DE INTERACCIONES ---
 client.on(Events.InteractionCreate, async interaction => {
     if (!interaction.isChatInputCommand()) return;
     const { commandName, options, guild, member, channel } = interaction;
 
-    // Standard Defer
-    await interaction.deferReply({ ephemeral: !['audit', 'flip', 'color'].includes(commandName) });
+    // Diferir para evitar timeouts
+    const isEphemeral = !['audit', 'server-stats'].includes(commandName);
+    await interaction.deferReply({ ephemeral: isEphemeral });
 
     const quickEmbed = (title, description, color = '#ffffff') => {
         const embed = new EmbedBuilder().setTitle(title).setDescription(description).setColor(color).setTimestamp();
         return interaction.editReply({ embeds: [embed] });
     };
 
-    // --- SECURITY CHECK ---
-    if (!['audit', 'flip', 'color', 'set-admin-role', 'echo'].includes(commandName)) {
+    // FILTRO DE SEGURIDAD GLOBAL
+    if (!['audit', 'server-stats', 'set-admin-role'].includes(commandName)) {
         const { data: config } = await supabase.from('guild_settings').select('admin_role_id').eq('guild_id', guild.id).single();
         const hasAuth = member.permissions.has(PermissionFlagsBits.Administrator) || (config && member.roles.cache.has(config.admin_role_id));
-        if (!hasAuth) return quickEmbed('❌ Access Denied', 'You need the authorized Admin Role.', '#ff0000');
+        if (!hasAuth) return quickEmbed('❌ Access Denied', 'Insufficient security clearance.', '#ff0000');
     }
 
-    // --- COMMAND: AUDIT ---
+    // INVESTIGATE & RELEASE
+    if (commandName === 'investigate') {
+        const target = options.getMember('user');
+        try {
+            const privateChannel = await guild.channels.create({
+                name: `investigation-${target.user.username}`,
+                type: ChannelType.GuildText,
+                permissionOverwrites: [
+                    { id: guild.roles.everyone, deny: [PermissionFlagsBits.ViewChannel] },
+                    { id: target.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+                    { id: member.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
+                ]
+            });
+            return quickEmbed('⚖️ Investigation Started', `Private channel created: ${privateChannel}`, '#e67e22');
+        } catch (e) { return quickEmbed('❌ Error', 'Could not create channel.', '#ff0000'); }
+    }
+
+    if (commandName === 'release') {
+        if (!channel.name.startsWith('investigation-')) return quickEmbed('❌ Error', 'This is not an investigation channel.', '#ff0000');
+        await quickEmbed('✅ Investigation Concluded', 'This channel will be deleted in 5 seconds...', '#2ecc71');
+        setTimeout(() => channel.delete().catch(() => {}), 5000);
+        return;
+    }
+
+    // SERVER STATS (Sugerencia)
+    if (commandName === 'server-stats') {
+        const statsEmbed = new EmbedBuilder()
+            .setTitle(`📊 Tactical Report: ${guild.name}`)
+            .setColor('#3498db')
+            .setThumbnail(guild.iconURL())
+            .addFields(
+                { name: '👥 Members', value: `${guild.memberCount}`, inline: true },
+                { name: '🤖 Bots', value: `${guild.members.cache.filter(m => m.user.bot).size}`, inline: true },
+                { name: '💎 Boost Level', value: `${guild.premiumTier}`, inline: true },
+                { name: '📂 Channels', value: `${guild.channels.cache.size}`, inline: true },
+                { name: '🛡️ Security Level', value: `${guild.verificationLevel}`, inline: true }
+            );
+        return interaction.editReply({ embeds: [statsEmbed] });
+    }
+
+    // AUDIT
     if (commandName === 'audit') {
         const target = options.getMember('user');
-        const user = target.user;
-
-        const joinedDiscord = Math.floor(user.createdTimestamp / 1000);
-        const joinedServer = Math.floor(target.joinedTimestamp / 1000);
-        const accountAgeDays = Math.floor((Date.now() - user.createdTimestamp) / (1000 * 60 * 60 * 24));
-        
-        const isSafe = accountAgeDays >= 30;
-        const statusHeader = isSafe ? '✅ **SAFE** (Account Age > 30d)' : '⚠️ **WARNING** (New Account < 30d)';
-        const embedColor = isSafe ? '#2ecc71' : '#e67e22';
-
+        const accountAgeDays = Math.floor((Date.now() - target.user.createdTimestamp) / (1000 * 60 * 60 * 24));
         const auditEmbed = new EmbedBuilder()
-            .setAuthor({ name: `Audit Report: ${user.tag}`, iconURL: user.displayAvatarURL() })
-            .setThumbnail(user.displayAvatarURL({ dynamic: true, size: 512 }))
-            .setColor(embedColor)
+            .setAuthor({ name: `Audit: ${target.user.tag}`, iconURL: target.user.displayAvatarURL() })
+            .setColor(accountAgeDays >= 30 ? '#2ecc71' : '#ff0000')
             .addFields(
-                { name: '🆔 User ID', value: `\`${user.id}\``, inline: true },
-                { name: '👤 Username', value: user.username, inline: true },
-                { name: '📛 Original Name', value: user.globalName || 'Not set', inline: true },
-                { name: '🔝 Highest Role', value: `${target.roles.highest}`, inline: true },
-                { name: '🛡️ Admin Perms', value: target.permissions.has(PermissionFlagsBits.Administrator) ? 'Yes' : 'No', inline: true },
-                { name: '🎭 Role Count', value: `${target.roles.cache.size - 1}`, inline: true },
-                { name: '📅 Joined Discord', value: `<t:${joinedDiscord}:R>`, inline: true },
-                { name: '📥 Joined Server', value: `<t:${joinedServer}:R>`, inline: true },
-                { name: '⚖️ Security Status', value: statusHeader }
-            )
-            .setFooter({ text: `Account Age: ${accountAgeDays} days` });
-
+                { name: '🆔 ID', value: `\`${target.user.id}\``, inline: true },
+                { name: '🎭 Roles', value: `${target.roles.cache.size - 1}`, inline: true },
+                { name: '⚖️ Status', value: accountAgeDays >= 30 ? '✅ SAFE' : '⚠️ WARNING' },
+                { name: '⏳ Age', value: `${accountAgeDays} days`, inline: true }
+            );
         return interaction.editReply({ embeds: [auditEmbed] });
     }
 
-    // --- MODERATION LOGIC ---
-    if (['ban', 'kick', 'timeout', 'warn'].includes(commandName)) {
+    // MODERACIÓN GENERAL
+    if (commandName === 'role-give' || commandName === 'role-take') {
         const target = options.getMember('user');
-        const reason = options.getString('reason') || 'No reason provided.';
-        if (!target.manageable) return quickEmbed('❌ Error', 'Hierarchy restriction.', '#ff0000');
-
-        if (commandName === 'ban') await target.ban({ reason });
-        if (commandName === 'warn') await supabase.from('infractions').insert([{ user_id: target.id, guild_id: guild.id, reason }]);
-        
-        return quickEmbed(`🛑 ${commandName.toUpperCase()}`, `**Target:** ${target.user.tag}\n**Reason:** ${reason}`, '#ff0000');
-    }
-
-    // --- UTILITIES ---
-    if (commandName === 'set-admin-role') {
         const role = options.getRole('role');
-        await supabase.from('guild_settings').upsert({ guild_id: guild.id, admin_role_id: role.id });
-        return quickEmbed('✅ Security Updated', `Admin role linked to: **${role.name}**`, '#2ecc71');
+        commandName === 'role-give' ? await target.roles.add(role) : await target.roles.remove(role);
+        return quickEmbed('🎭 Role Updated', `Target: ${target.user.tag}`, '#9b59b6');
     }
 
     if (commandName === 'purge') {
         const amount = options.getInteger('amount');
         await channel.bulkDelete(amount, true);
-        return quickEmbed('🧹 Purge', `Deleted ${amount} messages.`, '#95a5a6');
+        return quickEmbed('🧹 Purge', `Cleared ${amount} messages.`, '#95a5a6');
+    }
+
+    if (commandName === 'lock' || commandName === 'unlock') {
+        await channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: commandName === 'unlock' });
+        return quickEmbed('🔒 Status', 'Channel access updated.', '#e67e22');
     }
 
     if (commandName === 'echo') {
         await channel.send(options.getString('text'));
-        return interaction.editReply({ content: 'Done.' });
+        return interaction.editReply({ content: 'Message delivered.' });
     }
 
-    if (commandName === 'flip') {
-        return quickEmbed('🪙 Flip', `Result: **${Math.random() > 0.5 ? 'Heads' : 'Tails'}**`, '#f1c40f');
+    if (commandName === 'set-admin-role') {
+        const role = options.getRole('role');
+        await supabase.from('guild_settings').upsert({ guild_id: guild.id, admin_role_id: role.id });
+        return quickEmbed('✅ Security Updated', `Admin role set to: **${role.name}**`, '#2ecc71');
     }
 });
 
