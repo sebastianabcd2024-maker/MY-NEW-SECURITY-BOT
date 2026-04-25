@@ -36,6 +36,25 @@ client.once(Events.ClientReady, async () => {
         { name: 'infractions', description: 'View history', options: [{ name: 'user', type: 6, description: 'Target', required: true }] },
         { name: 'role-give', description: 'Add role', options: [{ name: 'user', type: 6, description: 'User', required: true }, { name: 'role', type: 8, description: 'Role', required: true }] },
         { name: 'role-take', description: 'Remove role', options: [{ name: 'user', type: 6, description: 'User', required: true }, { name: 'role', type: 8, description: 'Role', required: true }] },
+        { 
+            name: 'create-role', 
+            description: 'Crea un rol con permisos predefinidos', 
+            options: [
+                { name: 'name', type: 3, description: 'Nombre del rol', required: true },
+                { name: 'color', type: 3, description: 'Color Hex (ej: #ff0000)', required: false },
+                { 
+                    name: 'level', 
+                    type: 3, 
+                    description: 'Nivel de permisos', 
+                    required: false,
+                    choices: [
+                        { name: 'Miembro', value: 'miembro' },
+                        { name: 'Moderador', value: 'moderador' },
+                        { name: 'Administrador', value: 'administrador' }
+                    ]
+                }
+            ] 
+        },
         { name: 'create-channel', description: 'Create a channel', options: [
             { name: 'name', type: 3, description: 'Channel name', required: true },
             { name: 'type', type: 3, description: 'Text or Voice', required: true, choices: [{ name: 'Text', value: 'text' }, { name: 'Voice', value: 'voice' }] }
@@ -130,6 +149,35 @@ client.on(Events.InteractionCreate, async interaction => {
 
     try {
         switch (commandName) {
+            case 'create-role':
+                const rName = options.getString('name');
+                const rColor = options.getString('color') || '#95a5a6';
+                const rLevel = options.getString('level');
+                let perms = [];
+                let hoist = false;
+
+                if (rLevel === 'miembro') {
+                    perms = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AddReactions];
+                } else if (rLevel === 'moderador') {
+                    perms = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ManageMessages, PermissionFlagsBits.MuteMembers, PermissionFlagsBits.KickMembers, PermissionFlagsBits.ManageRoles];
+                    hoist = true;
+                } else if (rLevel === 'administrador') {
+                    perms = [PermissionFlagsBits.Administrator];
+                    hoist = true;
+                } else {
+                    perms = [PermissionFlagsBits.ViewChannel];
+                }
+
+                const newRole = await guild.roles.create({
+                    name: rName,
+                    color: rColor.startsWith('#') ? rColor : '#95a5a6',
+                    permissions: perms,
+                    hoist: hoist,
+                    reason: `Warden System: Rol creado por ${member.user.tag}`
+                });
+
+                return quickEmbed('🎨 Rol Creado', `**Nombre:** ${newRole}\n**Nivel:** ${rLevel || 'Decoración'}\n**Color:** ${rColor}`, newRole.hexColor, true);
+
             case 'set-admin-role':
                 const role = options.getRole('role');
                 localConfig.set(guild.id, { ...localConfig.get(guild.id), admin_role_id: role.id });
