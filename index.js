@@ -89,7 +89,23 @@ client.on(Events.InteractionCreate, async interaction => {
     const isPublic = ['audit', 'flip', 'color', 'infractions', 'ban', 'kick', 'warn', 'timeout'].includes(commandName);
     await interaction.deferReply({ ephemeral: !isPublic });
 
-    const quickEmbed = (title, desc, color = '#ffffff') => {
+    // Función para enviar a logs del servidor
+    const sendGlobalLog = (title, desc, color) => {
+        const conf = localConfig.get(guild.id);
+        if (!conf || !conf.log_channel) return;
+        const logChannel = guild.channels.cache.get(conf.log_channel);
+        if (logChannel) {
+            const logEmbed = new EmbedBuilder()
+                .setTitle(`📝 Log: ${title}`)
+                .setDescription(`${desc}\n\n**Moderator:** ${member.user.tag}\n**Channel:** ${channel}`)
+                .setColor(color)
+                .setTimestamp();
+            logChannel.send({ embeds: [logEmbed] }).catch(console.error);
+        }
+    };
+
+    const quickEmbed = (title, desc, color = '#ffffff', logIt = false) => {
+        if (logIt) sendGlobalLog(title, desc, color); // Envío automático a logs si se requiere
         return interaction.editReply({ 
             embeds: [new EmbedBuilder().setTitle(title).setDescription(desc).setColor(color).setTimestamp()] 
         }).catch(console.error);
@@ -119,18 +135,19 @@ client.on(Events.InteractionCreate, async interaction => {
                 const bUser = options.getUser('user');
                 const bReason = options.getString('reason') || 'No reason provided';
                 await guild.members.ban(bUser, { reason: bReason });
-                return quickEmbed('🔨 Ban Applied', `**Target:** ${bUser.tag}\n**Reason:** ${bReason}`, '#ff0000');
+                return quickEmbed('🔨 Ban Applied', `**Target:** ${bUser.tag}\n**Reason:** ${bReason}`, '#ff0000', true);
 
             case 'unban':
                 const uId = options.getString('user_id');
                 await guild.members.unban(uId);
-                return quickEmbed('🔓 Unbanned', `User ID \`${uId}\` has been unbanned.`, '#2ecc71');
+                return quickEmbed('🔓 Unbanned', `User ID \`${uId}\` has been unbanned.`, '#2ecc71', true);
 
             case 'kick':
                 const kMember = options.getMember('user');
                 if (!kMember.kickable) throw new Error('Cannot kick this user (Hierarchy).');
-                await kMember.kick(options.getString('reason') || 'No reason provided');
-                return quickEmbed('🚀 Kicked', `User **${kMember.user.tag}** has been removed.`, '#e67e22');
+                const kReason = options.getString('reason') || 'No reason provided';
+                await kMember.kick(kReason);
+                return quickEmbed('🚀 Kicked', `User **${kMember.user.tag}** has been removed.\n**Reason:** ${kReason}`, '#e67e22', true);
 
             case 'warn':
                 const wUser = options.getUser('user');
@@ -138,7 +155,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 const warns = localWarns.get(wUser.id) || [];
                 warns.push({ date: new Date().toLocaleDateString(), reason: wReason });
                 localWarns.set(wUser.id, warns);
-                return quickEmbed('⚠️ Warning Issued', `**Target:** ${wUser}\n**Reason:** ${wReason}\n**Total Warns:** ${warns.length}`, '#f1c40f');
+                return quickEmbed('⚠️ Warning Issued', `**Target:** ${wUser}\n**Reason:** ${wReason}\n**Total Warns:** ${warns.length}`, '#f1c40f', true);
 
             case 'infractions':
                 const iUser = options.getUser('user');
@@ -150,24 +167,25 @@ client.on(Events.InteractionCreate, async interaction => {
                 const tMember = options.getMember('user');
                 const tMin = options.getInteger('minutes');
                 if (!tMember.manageable) throw new Error('Hierarchy restriction.');
-                await tMember.timeout(tMin * 60000, options.getString('reason') || 'No reason');
-                return quickEmbed('⏳ Timeout', `${tMember.user.tag} muted for ${tMin}m.`, '#e67e22');
+                const tReason = options.getString('reason') || 'No reason';
+                await tMember.timeout(tMin * 60000, tReason);
+                return quickEmbed('⏳ Timeout', `${tMember.user.tag} muted for ${tMin}m.\n**Reason:** ${tReason}`, '#e67e22', true);
 
             case 'unmute':
                 const umMember = options.getMember('user');
                 await umMember.timeout(null);
-                return quickEmbed('🔊 Unmuted', `${umMember.user.tag} is no longer muted.`, '#2ecc71');
+                return quickEmbed('🔊 Unmuted', `${umMember.user.tag} is no longer muted.`, '#2ecc71', true);
 
             case 'purge':
                 const pAmount = Math.min(options.getInteger('amount'), 100);
                 const deleted = await channel.bulkDelete(pAmount, true);
-                return quickEmbed('🧹 Purge', `Successfully deleted **${deleted.size}** messages.`, '#95a5a6');
+                return quickEmbed('🧹 Purge', `Successfully deleted **${deleted.size}** messages.`, '#95a5a6', true);
 
             case 'lock':
             case 'unlock':
                 const isLock = commandName === 'lock';
                 await channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: !isLock });
-                return quickEmbed(isLock ? '🔒 Locked' : '🔓 Unlocked', `Channel permissions updated.`, isLock ? '#e67e22' : '#2ecc71');
+                return quickEmbed(isLock ? '🔒 Locked' : '🔓 Unlocked', `Channel permissions updated.`, isLock ? '#e67e22' : '#2ecc71', true);
 
             case 'audit':
                 const aTarget = options.getMember('user');
@@ -179,22 +197,22 @@ client.on(Events.InteractionCreate, async interaction => {
                 const rgMember = options.getMember('user');
                 const rgRole = options.getRole('role');
                 commandName === 'role-give' ? await rgMember.roles.add(rgRole) : await rgMember.roles.remove(rgRole);
-                return quickEmbed('🎭 Role Updated', `Updated **${rgRole.name}** for **${rgMember.user.tag}**`, '#3498db');
+                return quickEmbed('🎭 Role Updated', `Updated **${rgRole.name}** for **${rgMember.user.tag}**`, '#3498db', true);
 
             case 'create-channel':
                 const cName = options.getString('name');
                 const cType = options.getString('type') === 'text' ? ChannelType.GuildText : ChannelType.GuildVoice;
                 const newChan = await guild.channels.create({ name: cName, type: cType });
-                return quickEmbed('✨ Channel Created', `New channel: ${newChan}`, '#2ecc71');
+                return quickEmbed('✨ Channel Created', `New channel: ${newChan}`, '#2ecc71', true);
 
             case 'investigate':
                 const invTarget = options.getMember('user');
                 await channel.permissionOverwrites.edit(invTarget, { ViewChannel: true, SendMessages: true });
-                return quickEmbed('🕵️ Investigation', `${invTarget} has been isolated for questioning.`, '#9b59b6');
+                return quickEmbed('🕵️ Investigation', `${invTarget} has been isolated for questioning.`, '#9b59b6', true);
 
             case 'release':
-                await channel.permissionOverwrites.delete(member); // Example logic
-                return quickEmbed('🕊️ Released', `Investigation concluded.`, '#2ecc71');
+                await channel.permissionOverwrites.delete(member); 
+                return quickEmbed('🕊️ Released', `Investigation concluded.`, '#2ecc71', true);
 
             case 'color':
                 const colorHex = options.getString('input');
