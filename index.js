@@ -21,7 +21,7 @@ const spamMap = new Map();
 
 // --- REGISTRO DE COMANDOS ---
 client.once(Events.ClientReady, async () => {
-    console.log(`🛡️ Warden Systems v3.5 [EMBED UPDATE] | Online`);
+    console.log(`🛡️ Warden Systems v3.6 [HARD-LOCK UPDATE] | Online`);
     
     const commands = [
         { name: 'set-admin-role', description: 'Setup admin role', options: [{ name: 'role', type: 8, description: 'Role', required: true }] },
@@ -41,7 +41,7 @@ client.once(Events.ClientReady, async () => {
             { name: 'type', type: 3, description: 'Text or Voice', required: true, choices: [{ name: 'Text', value: 'text' }, { name: 'Voice', value: 'voice' }] }
         ]},
         { name: 'purge', description: 'Clear messages', options: [{ name: 'amount', type: 4, description: 'Amount', required: true }] },
-        { name: 'lock', description: 'Lock channel' },
+        { name: 'lock', description: 'Lock channel (Hard Lock)' },
         { name: 'unlock', description: 'Unlock channel' },
         { name: 'investigate', description: 'Private isolation', options: [{ name: 'user', type: 6, description: 'Target', required: true }] },
         { name: 'release', description: 'End investigation' },
@@ -193,8 +193,42 @@ client.on(Events.InteractionCreate, async interaction => {
             case 'lock':
             case 'unlock':
                 const isLock = commandName === 'lock';
-                await channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: !isLock });
-                return quickEmbed(isLock ? '🔒 Locked' : '🔓 Unlocked', `Channel permissions updated.`, isLock ? '#e67e22' : '#2ecc71', true);
+                const serverRoles = guild.roles.cache;
+                const adminConfig = localConfig.get(guild.id);
+
+                // Bloqueo total: nada de mensajes, hilos, archivos, ni reacciones.
+                const lockPerms = { 
+                    SendMessages: !isLock,
+                    SendMessagesInThreads: !isLock,
+                    CreatePublicThreads: !isLock,
+                    CreatePrivateThreads: !isLock,
+                    AddReactions: !isLock,
+                    AttachFiles: !isLock,
+                    EmbedLinks: !isLock,
+                    UseExternalEmojis: !isLock
+                };
+
+                // Iteramos roles para aplicar excepciones
+                for (const [id, role] of serverRoles) {
+                    const isBotRole = role.tags?.botId === client.user.id;
+                    const isConfigAdmin = adminConfig && role.id === adminConfig.admin_role_id;
+                    const isServerAdmin = role.permissions.has(PermissionFlagsBits.Administrator);
+                    const isManaged = role.managed;
+
+                    if (isBotRole || isConfigAdmin || isServerAdmin || isManaged) continue;
+
+                    await channel.permissionOverwrites.edit(role, lockPerms).catch(() => null);
+                }
+
+                // Asegurar el rol base @everyone
+                await channel.permissionOverwrites.edit(guild.roles.everyone, lockPerms);
+
+                return quickEmbed(
+                    isLock ? '🔐 Hard Lock Active' : '🔓 System Unlocked', 
+                    isLock ? 'Se han revocado permisos de interacción a todos los roles no autorizados.' : 'Se ha restaurado el acceso al canal.', 
+                    isLock ? '#ff0000' : '#2ecc71', 
+                    true
+                );
 
             case 'audit':
                 const aTarget = options.getMember('user');
@@ -205,60 +239,4 @@ client.on(Events.InteractionCreate, async interaction => {
             case 'role-take':
                 const rgMember = options.getMember('user');
                 const rgRole = options.getRole('role');
-                commandName === 'role-give' ? await rgMember.roles.add(rgRole) : await rgMember.roles.remove(rgRole);
-                return quickEmbed('🎭 Role Updated', `Updated **${rgRole.name}** for **${rgMember.user.tag}**`, '#3498db', true);
-
-            case 'create-channel':
-                const cnName = options.getString('name');
-                const cnType = options.getString('type') === 'text' ? ChannelType.GuildText : ChannelType.GuildVoice;
-                const newChan = await guild.channels.create({ name: cnName, type: cnType });
-                return quickEmbed('✨ Channel Created', `New channel: ${newChan}`, '#2ecc71', true);
-
-            case 'investigate':
-                const invTarget = options.getMember('user');
-                await channel.permissionOverwrites.edit(invTarget, { ViewChannel: true, SendMessages: true });
-                return quickEmbed('🕵️ Investigation', `${invTarget} has been isolated for questioning.`, '#9b59b6', true);
-
-            case 'release':
-                await channel.permissionOverwrites.delete(member); 
-                return quickEmbed('🕊️ Released', `Investigation concluded.`, '#2ecc71', true);
-
-            case 'color':
-                const colorHex = options.getString('input');
-                return quickEmbed('🎨 Color Info', `Previewing color: **${colorHex}**`, colorHex.startsWith('#') ? colorHex : '#ffffff');
-
-            case 'echo':
-                await channel.send(options.getString('text'));
-                return interaction.editReply({ content: 'Message sent.' });
-
-            case 'flip':
-                return quickEmbed('🪙 Flip', `Result: **${Math.random() > 0.5 ? 'Heads' : 'Tails'}**`, '#f1c40f');
-
-            case 'embed':
-                const eDesc = options.getString('description');
-                const eTitle = options.getString('title');
-                const eColor = options.getString('color') || '#ffffff';
-                const eThumb = options.getString('thumbnail');
-                const eImg = options.getString('image');
-
-                const customEmbed = new EmbedBuilder()
-                    .setDescription(eDesc)
-                    .setColor(eColor.startsWith('#') ? eColor : '#ffffff')
-                    .setTimestamp();
-
-                if (eTitle) customEmbed.setTitle(eTitle);
-                if (eThumb) customEmbed.setThumbnail(eThumb);
-                if (eImg) customEmbed.setImage(eImg);
-
-                return interaction.editReply({ embeds: [customEmbed] });
-
-            default:
-                return quickEmbed('❓ Unknown', 'Command logic not found.', '#7289da');
-        }
-    } catch (err) {
-        console.error(err);
-        return quickEmbed('❌ Error', `Action failed: \`${err.message}\``, '#ff0000');
-    }
-});
-
-client.login(TOKEN);
+                commandName === 'role-give' ? await rgMember.roles.add(
