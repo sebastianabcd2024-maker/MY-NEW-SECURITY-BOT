@@ -21,7 +21,7 @@ const spamMap = new Map();
 
 // --- REGISTRO DE COMANDOS ---
 client.once(Events.ClientReady, async () => {
-    console.log(`🛡️ Warden Systems v3.6 [HARD-LOCK UPDATE] | Online`);
+    console.log(`🛡️ Warden Systems v3.7 [RAILWAY STABLE] | Online`);
     
     const commands = [
         { name: 'set-admin-role', description: 'Setup admin role', options: [{ name: 'role', type: 8, description: 'Role', required: true }] },
@@ -65,12 +65,12 @@ client.once(Events.ClientReady, async () => {
     try { await rest.put(Routes.applicationCommands(APP_ID), { body: commands }); } catch (e) { console.error(e); }
 });
 
-// --- ANTI-SPAM LOGIC ---
+// --- ANTI-SPAM ---
 client.on(Events.MessageCreate, async (message) => {
     if (message.author.bot || !message.guild) return;
     const now = Date.now();
     const config = localConfig.get(message.guild.id);
-    if (message.member.permissions.has(PermissionFlagsBits.Administrator) || (config && message.member.roles.cache.has(config.admin_role_id))) return;
+    if (message.member?.permissions.has(PermissionFlagsBits.Administrator) || (config && message.member?.roles.cache.has(config.admin_role_id))) return;
 
     if (!spamMap.has(message.author.id)) {
         spamMap.set(message.author.id, { count: 1, lastMessage: now });
@@ -88,7 +88,7 @@ client.on(Events.MessageCreate, async (message) => {
             await message.channel.bulkDelete(msgs.filter(m => m.author.id === message.author.id), true);
             await message.member.timeout(600000, 'Anti-Spam Triggered');
             message.channel.send(`🛡️ **Warden:** ${message.author} muted for spam.`);
-        } catch (err) { console.error(err); }
+        } catch (err) { console.error('Anti-spam error ignored.'); }
     }
 });
 
@@ -110,7 +110,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 .setDescription(`${desc}\n\n**Moderator:** ${member.user.tag}\n**Channel:** ${channel}`)
                 .setColor(color)
                 .setTimestamp();
-            logChannel.send({ embeds: [logEmbed] }).catch(console.error);
+            logChannel.send({ embeds: [logEmbed] }).catch(() => null);
         }
     };
 
@@ -118,7 +118,7 @@ client.on(Events.InteractionCreate, async interaction => {
         if (logIt) sendGlobalLog(title, desc, color);
         return interaction.editReply({ 
             embeds: [new EmbedBuilder().setTitle(title).setDescription(desc).setColor(color).setTimestamp()] 
-        }).catch(console.error);
+        }).catch(() => null);
     };
 
     const config = localConfig.get(guild.id);
@@ -153,7 +153,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
             case 'kick':
                 const kMember = options.getMember('user');
-                if (!kMember.kickable) throw new Error('Cannot kick this user (Hierarchy).');
+                if (!kMember || !kMember.kickable) throw new Error('Cannot kick this user (Hierarchy/Null).');
                 const kReason = options.getString('reason') || 'No reason provided';
                 await kMember.kick(kReason);
                 return quickEmbed('🚀 Kicked', `User **${kMember.user.tag}** has been removed.\n**Reason:** ${kReason}`, '#e67e22', true);
@@ -174,14 +174,15 @@ client.on(Events.InteractionCreate, async interaction => {
 
             case 'timeout':
                 const tMember = options.getMember('user');
+                if (!tMember || !tMember.manageable) throw new Error('Hierarchy restriction or member not found.');
                 const tMin = options.getInteger('minutes');
-                if (!tMember.manageable) throw new Error('Hierarchy restriction.');
                 const tReason = options.getString('reason') || 'No reason';
                 await tMember.timeout(tMin * 60000, tReason);
                 return quickEmbed('⏳ Timeout', `${tMember.user.tag} muted for ${tMin}m.\n**Reason:** ${tReason}`, '#e67e22', true);
 
             case 'unmute':
                 const umMember = options.getMember('user');
+                if (!umMember) throw new Error('Member not found.');
                 await umMember.timeout(null);
                 return quickEmbed('🔊 Unmuted', `${umMember.user.tag} is no longer muted.`, '#2ecc71', true);
 
@@ -193,10 +194,6 @@ client.on(Events.InteractionCreate, async interaction => {
             case 'lock':
             case 'unlock':
                 const isLock = commandName === 'lock';
-                const serverRoles = guild.roles.cache;
-                const adminConfig = localConfig.get(guild.id);
-
-                // Bloqueo total: nada de mensajes, hilos, archivos, ni reacciones.
                 const lockPerms = { 
                     SendMessages: !isLock,
                     SendMessagesInThreads: !isLock,
@@ -207,31 +204,12 @@ client.on(Events.InteractionCreate, async interaction => {
                     EmbedLinks: !isLock,
                     UseExternalEmojis: !isLock
                 };
-
-                // Iteramos roles para aplicar excepciones
-                for (const [id, role] of serverRoles) {
-                    const isBotRole = role.tags?.botId === client.user.id;
-                    const isConfigAdmin = adminConfig && role.id === adminConfig.admin_role_id;
-                    const isServerAdmin = role.permissions.has(PermissionFlagsBits.Administrator);
-                    const isManaged = role.managed;
-
-                    if (isBotRole || isConfigAdmin || isServerAdmin || isManaged) continue;
-
-                    await channel.permissionOverwrites.edit(role, lockPerms).catch(() => null);
-                }
-
-                // Asegurar el rol base @everyone
                 await channel.permissionOverwrites.edit(guild.roles.everyone, lockPerms);
-
-                return quickEmbed(
-                    isLock ? '🔐 Hard Lock Active' : '🔓 System Unlocked', 
-                    isLock ? 'Se han revocado permisos de interacción a todos los roles no autorizados.' : 'Se ha restaurado el acceso al canal.', 
-                    isLock ? '#ff0000' : '#2ecc71', 
-                    true
-                );
+                return quickEmbed(isLock ? '🔐 Hard Lock' : '🔓 Unlocked', isLock ? 'Canal cerrado totalmente para @everyone.' : 'Acceso restaurado.', isLock ? '#ff0000' : '#2ecc71', true);
 
             case 'audit':
                 const aTarget = options.getMember('user');
+                if (!aTarget) throw new Error('Target not found.');
                 const aAge = Math.floor((Date.now() - aTarget.user.createdTimestamp) / 86400000);
                 return quickEmbed(`Audit: ${aTarget.user.tag}`, `**ID:** \`${aTarget.user.id}\`\n**Account Age:** ${aAge} days\n**Status:** ${aAge >= 30 ? '✅ SAFE' : '⚠️ WARNING'}`, aAge >= 30 ? '#2ecc71' : '#ff0000');
 
@@ -239,4 +217,64 @@ client.on(Events.InteractionCreate, async interaction => {
             case 'role-take':
                 const rgMember = options.getMember('user');
                 const rgRole = options.getRole('role');
-                commandName === 'role-give' ? await rgMember.roles.add(
+                if (!rgMember || !rgRole) throw new Error('Invalid target or role.');
+                commandName === 'role-give' ? await rgMember.roles.add(rgRole) : await rgMember.roles.remove(rgRole);
+                return quickEmbed('🎭 Role Updated', `Updated **${rgRole.name}** for **${rgMember.user.tag}**`, '#3498db', true);
+
+            case 'create-channel':
+                const cnName = options.getString('name');
+                const cnType = options.getString('type') === 'text' ? ChannelType.GuildText : ChannelType.GuildVoice;
+                const newChan = await guild.channels.create({ name: cnName, type: cnType });
+                return quickEmbed('✨ Channel Created', `New channel: ${newChan}`, '#2ecc71', true);
+
+            case 'investigate':
+                const invTarget = options.getMember('user');
+                if (!invTarget) throw new Error('Target not found.');
+                await channel.permissionOverwrites.edit(invTarget, { ViewChannel: true, SendMessages: true });
+                return quickEmbed('🕵️ Investigation', `${invTarget} has been isolated for questioning.`, '#9b59b6', true);
+
+            case 'release':
+                await channel.permissionOverwrites.delete(member); 
+                return quickEmbed('🕊️ Released', `Investigation concluded.`, '#2ecc71', true);
+
+            case 'color':
+                const colorHex = options.getString('input');
+                return quickEmbed('🎨 Color Info', `Previewing color: **${colorHex}**`, colorHex.startsWith('#') ? colorHex : '#ffffff');
+
+            case 'echo':
+                await channel.send(options.getString('text'));
+                return interaction.editReply({ content: 'Message sent.' });
+
+            case 'flip':
+                return quickEmbed('🪙 Flip', `Result: **${Math.random() > 0.5 ? 'Heads' : 'Tails'}**`, '#f1c40f');
+
+            case 'embed':
+                const eDesc = options.getString('description');
+                const customEmbed = new EmbedBuilder()
+                    .setDescription(eDesc)
+                    .setColor(options.getString('color')?.startsWith('#') ? options.getString('color') : '#ffffff')
+                    .setTimestamp();
+                if (options.getString('title')) customEmbed.setTitle(options.getString('title'));
+                if (options.getString('thumbnail')) customEmbed.setThumbnail(options.getString('thumbnail'));
+                if (options.getString('image')) customEmbed.setImage(options.getString('image'));
+                return interaction.editReply({ embeds: [customEmbed] });
+
+            default:
+                return quickEmbed('❓ Unknown', 'Command logic not found.', '#7289da');
+        }
+    } catch (err) {
+        console.error(err);
+        return quickEmbed('❌ Error', `Action failed: \`${err.message}\``, '#ff0000');
+    }
+});
+
+// --- ANTI-CRASH SYSTEM (Railway Essential) ---
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('🛡️ Global Error (Rejection):', reason);
+});
+
+process.on('uncaughtException', (err, origin) => {
+    console.error('🛡️ Global Error (Exception):', err);
+});
+
+client.login(TOKEN);
