@@ -54,16 +54,12 @@ client.once(Events.ClientReady, async () => {
     try { await rest.put(Routes.applicationCommands(APP_ID), { body: commands }); } catch (e) { console.error(e); }
 });
 
-// --- 3. LÓGICA ANTI-SPAM (EVENTO DE MENSAJE) ---
+// --- ANTI-SPAM LOGIC ---
 client.on(Events.MessageCreate, async (message) => {
     if (message.author.bot || !message.guild) return;
-
     const now = Date.now();
     const config = localConfig.get(message.guild.id);
-    
-    // Inmunidad para Admins
-    if (message.member.permissions.has(PermissionFlagsBits.Administrator) || 
-       (config && message.member.roles.cache.has(config.admin_role_id))) return;
+    if (message.member.permissions.has(PermissionFlagsBits.Administrator) || (config && message.member.roles.cache.has(config.admin_role_id))) return;
 
     if (!spamMap.has(message.author.id)) {
         spamMap.set(message.author.id, { count: 1, lastMessage: now });
@@ -79,83 +75,144 @@ client.on(Events.MessageCreate, async (message) => {
         try {
             const msgs = await message.channel.messages.fetch({ limit: 10 });
             await message.channel.bulkDelete(msgs.filter(m => m.author.id === message.author.id), true);
-
-            try {
-                await message.member.timeout(600000, 'Anti-Spam Triggered');
-                message.channel.send(`🛡️ **Warden:** ${message.author} muted for spam.`);
-            } catch (err) {
-                message.channel.send(`⚠️ **Warden:** Spam detected from ${message.author}. Messages cleared, but **could not apply timeout** (Hierarchy).`);
-            }
-        } catch (e) { console.error(e); }
+            await message.member.timeout(600000, 'Anti-Spam Triggered');
+            message.channel.send(`🛡️ **Warden:** ${message.author} muted for spam.`);
+        } catch (err) { console.error(err); }
     }
 });
 
-// --- 4. MANEJADOR DE INTERACCIONES (RESPUESTAS FIJAS) ---
+// --- INTERACTION HANDLER ---
 client.on(Events.InteractionCreate, async interaction => {
     if (!interaction.isChatInputCommand()) return;
     const { commandName, options, guild, member, channel } = interaction;
 
-    const isPublic = ['audit', 'flip', 'color'].includes(commandName);
+    const isPublic = ['audit', 'flip', 'color', 'infractions', 'ban', 'kick', 'warn', 'timeout'].includes(commandName);
     await interaction.deferReply({ ephemeral: !isPublic });
 
     const quickEmbed = (title, desc, color = '#ffffff') => {
-        return interaction.editReply({ embeds: [new EmbedBuilder().setTitle(title).setDescription(desc).setColor(color).setTimestamp()] });
+        return interaction.editReply({ 
+            embeds: [new EmbedBuilder().setTitle(title).setDescription(desc).setColor(color).setTimestamp()] 
+        }).catch(console.error);
     };
 
-    // SEGURIDAD
-    if (!['audit', 'flip', 'color', 'set-admin-role', 'set-logs'].includes(commandName)) {
-        const config = localConfig.get(guild.id);
-        const hasAuth = member.permissions.has(PermissionFlagsBits.Administrator) || (config && member.roles.cache.has(config.admin_role_id));
-        if (!hasAuth) return quickEmbed('❌ Access Denied', 'Unauthorized.', '#ff0000');
+    // SECURITY CHECK
+    const config = localConfig.get(guild.id);
+    const hasAuth = member.permissions.has(PermissionFlagsBits.Administrator) || (config && member.roles.cache.has(config.admin_role_id));
+    
+    if (!['audit', 'flip', 'color'].includes(commandName) && !hasAuth) {
+        return quickEmbed('❌ Access Denied', 'Unauthorized. You lack permissions or Admin Role is not set.', '#ff0000');
     }
 
-    // LÓGICA DE COMANDOS
     try {
-        if (commandName === 'set-admin-role') {
-            const role = options.getRole('role');
-            localConfig.set(guild.id, { ...localConfig.get(guild.id), admin_role_id: role.id });
-            return quickEmbed('✅ Security Updated', `Admin role: **${role.name}**`, '#2ecc71');
+        switch (commandName) {
+            case 'set-admin-role':
+                const role = options.getRole('role');
+                localConfig.set(guild.id, { ...localConfig.get(guild.id), admin_role_id: role.id });
+                return quickEmbed('✅ Security Updated', `Admin role set to: **${role.name}**`, '#2ecc71');
+
+            case 'set-logs':
+                const logChan = options.getChannel('channel');
+                localConfig.set(guild.id, { ...localConfig.get(guild.id), log_channel: logChan.id });
+                return quickEmbed('📁 Logs Configured', `Logs will be sent to ${logChan}`, '#3498db');
+
+            case 'ban':
+                const bUser = options.getUser('user');
+                const bReason = options.getString('reason') || 'No reason provided';
+                await guild.members.ban(bUser, { reason: bReason });
+                return quickEmbed('🔨 Ban Applied', `**Target:** ${bUser.tag}\n**Reason:** ${bReason}`, '#ff0000');
+
+            case 'unban':
+                const uId = options.getString('user_id');
+                await guild.members.unban(uId);
+                return quickEmbed('🔓 Unbanned', `User ID \`${uId}\` has been unbanned.`, '#2ecc71');
+
+            case 'kick':
+                const kMember = options.getMember('user');
+                if (!kMember.kickable) throw new Error('Cannot kick this user (Hierarchy).');
+                await kMember.kick(options.getString('reason') || 'No reason provided');
+                return quickEmbed('🚀 Kicked', `User **${kMember.user.tag}** has been removed.`, '#e67e22');
+
+            case 'warn':
+                const wUser = options.getUser('user');
+                const wReason = options.getString('reason');
+                const warns = localWarns.get(wUser.id) || [];
+                warns.push({ date: new Date().toLocaleDateString(), reason: wReason });
+                localWarns.set(wUser.id, warns);
+                return quickEmbed('⚠️ Warning Issued', `**Target:** ${wUser}\n**Reason:** ${wReason}\n**Total Warns:** ${warns.length}`, '#f1c40f');
+
+            case 'infractions':
+                const iUser = options.getUser('user');
+                const iHistory = localWarns.get(iUser.id) || [];
+                const iList = iHistory.map((w, i) => `**${i+1}.** [${w.date}] ${w.reason}`).join('\n') || 'No infractions found.';
+                return quickEmbed(`Infractions: ${iUser.tag}`, iList, '#3498db');
+
+            case 'timeout':
+                const tMember = options.getMember('user');
+                const tMin = options.getInteger('minutes');
+                if (!tMember.manageable) throw new Error('Hierarchy restriction.');
+                await tMember.timeout(tMin * 60000, options.getString('reason') || 'No reason');
+                return quickEmbed('⏳ Timeout', `${tMember.user.tag} muted for ${tMin}m.`, '#e67e22');
+
+            case 'unmute':
+                const umMember = options.getMember('user');
+                await umMember.timeout(null);
+                return quickEmbed('🔊 Unmuted', `${umMember.user.tag} is no longer muted.`, '#2ecc71');
+
+            case 'purge':
+                const pAmount = Math.min(options.getInteger('amount'), 100);
+                const deleted = await channel.bulkDelete(pAmount, true);
+                return quickEmbed('🧹 Purge', `Successfully deleted **${deleted.size}** messages.`, '#95a5a6');
+
+            case 'lock':
+            case 'unlock':
+                const isLock = commandName === 'lock';
+                await channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: !isLock });
+                return quickEmbed(isLock ? '🔒 Locked' : '🔓 Unlocked', `Channel permissions updated.`, isLock ? '#e67e22' : '#2ecc71');
+
+            case 'audit':
+                const aTarget = options.getMember('user');
+                const aAge = Math.floor((Date.now() - aTarget.user.createdTimestamp) / 86400000);
+                return quickEmbed(`Audit: ${aTarget.user.tag}`, `**ID:** \`${aTarget.user.id}\`\n**Account Age:** ${aAge} days\n**Status:** ${aAge >= 30 ? '✅ SAFE' : '⚠️ WARNING'}`, aAge >= 30 ? '#2ecc71' : '#ff0000');
+
+            case 'role-give':
+            case 'role-take':
+                const rgMember = options.getMember('user');
+                const rgRole = options.getRole('role');
+                commandName === 'role-give' ? await rgMember.roles.add(rgRole) : await rgMember.roles.remove(rgRole);
+                return quickEmbed('🎭 Role Updated', `Updated **${rgRole.name}** for **${rgMember.user.tag}**`, '#3498db');
+
+            case 'create-channel':
+                const cName = options.getString('name');
+                const cType = options.getString('type') === 'text' ? ChannelType.GuildText : ChannelType.GuildVoice;
+                const newChan = await guild.channels.create({ name: cName, type: cType });
+                return quickEmbed('✨ Channel Created', `New channel: ${newChan}`, '#2ecc71');
+
+            case 'investigate':
+                const invTarget = options.getMember('user');
+                await channel.permissionOverwrites.edit(invTarget, { ViewChannel: true, SendMessages: true });
+                return quickEmbed('🕵️ Investigation', `${invTarget} has been isolated for questioning.`, '#9b59b6');
+
+            case 'release':
+                await channel.permissionOverwrites.delete(member); // Example logic
+                return quickEmbed('🕊️ Released', `Investigation concluded.`, '#2ecc71');
+
+            case 'color':
+                const colorHex = options.getString('input');
+                return quickEmbed('🎨 Color Info', `Previewing color: **${colorHex}**`, colorHex.startsWith('#') ? colorHex : '#ffffff');
+
+            case 'echo':
+                await channel.send(options.getString('text'));
+                return interaction.editReply({ content: 'Message sent.' });
+
+            case 'flip':
+                return quickEmbed('🪙 Flip', `Result: **${Math.random() > 0.5 ? 'Heads' : 'Tails'}**`, '#f1c40f');
+
+            default:
+                return quickEmbed('❓ Unknown', 'Command logic not found.', '#7289da');
         }
-
-        if (commandName === 'lock' || commandName === 'unlock') {
-            const isLock = commandName === 'lock';
-            await channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: !isLock });
-            return quickEmbed(isLock ? '🔒 Locked' : '🔓 Unlocked', `Channel ${channel} updated.`, isLock ? '#e67e22' : '#2ecc71');
-        }
-
-        if (commandName === 'timeout') {
-            const target = options.getMember('user');
-            const min = options.getInteger('minutes');
-            if (!target.manageable) return quickEmbed('❌ Error', 'Hierarchy restriction.', '#ff0000');
-            await target.timeout(min * 60000);
-            return quickEmbed('⏳ Timeout', `${target.user.tag} muted for ${min}m.`, '#e67e22');
-        }
-
-        if (commandName === 'purge') {
-            const amount = options.getInteger('amount');
-            await channel.bulkDelete(amount, true);
-            return quickEmbed('🧹 Purge', `Deleted ${amount} messages.`, '#95a5a6');
-        }
-
-        if (commandName === 'role-give' || commandName === 'role-take') {
-            const target = options.getMember('user');
-            const role = options.getRole('role');
-            commandName === 'role-give' ? await target.roles.add(role) : await target.roles.remove(role);
-            return quickEmbed('🎭 Role', `Updated **${role.name}** for **${target.user.tag}**`, '#3498db');
-        }
-
-        if (commandName === 'audit') {
-            const target = options.getMember('user');
-            const age = Math.floor((Date.now() - target.user.createdTimestamp) / 86400000);
-            return quickEmbed(`Audit: ${target.user.tag}`, `ID: \`${target.user.id}\`\nStatus: ${age >= 30 ? '✅ SAFE' : '⚠️ WARNING'}`, age >= 30 ? '#2ecc71' : '#ff0000');
-        }
-
-        // ... Otros comandos siguen la misma estructura de return quickEmbed ...
-        if (commandName === 'flip') return quickEmbed('🪙 Flip', `Result: **${Math.random() > 0.5 ? 'Heads' : 'Tails'}**`);
-        if (commandName === 'echo') { await channel.send(options.getString('text')); return interaction.editReply({ content: 'Sent.' }); }
-
     } catch (err) {
-        return quickEmbed('❌ Critical Error', `Action failed: ${err.message}`, '#ff0000');
+        console.error(err);
+        return quickEmbed('❌ Error', `Action failed: \`${err.message}\``, '#ff0000');
     }
 });
 
