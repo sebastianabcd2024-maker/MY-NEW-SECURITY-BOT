@@ -38,19 +38,22 @@ client.once(Events.ClientReady, async () => {
         { name: 'role-take', description: 'Remove role', options: [{ name: 'user', type: 6, description: 'User', required: true }, { name: 'role', type: 8, description: 'Role', required: true }] },
         { 
             name: 'create-role', 
-            description: 'Crea un rol con permisos predefinidos', 
+            description: 'Creates a role with predefined permission levels', 
             options: [
-                { name: 'name', type: 3, description: 'Nombre del rol', required: true },
-                { name: 'color', type: 3, description: 'Color Hex (ej: #ff0000)', required: false },
+                { name: 'name', type: 3, description: 'Role name', required: true },
+                { name: 'color', type: 3, description: 'Hex color (e.g. #ff0000)', required: false },
                 { 
                     name: 'level', 
                     type: 3, 
-                    description: 'Nivel de permisos', 
+                    description: 'Permission tier', 
                     required: false,
                     choices: [
-                        { name: 'Miembro', value: 'miembro' },
-                        { name: 'Moderador', value: 'moderador' },
-                        { name: 'Administrador', value: 'administrador' }
+                        { name: 'Decoration', value: 'decoration' },
+                        { name: 'Member', value: 'member' },
+                        { name: 'Moderator', value: 'moderator' },
+                        { name: 'Senior Moderator', value: 'senior_mod' },
+                        { name: 'Administrator', value: 'administrator' },
+                        { name: 'Developer', value: 'developer' }
                     ]
                 }
             ] 
@@ -156,16 +159,30 @@ client.on(Events.InteractionCreate, async interaction => {
                 let perms = [];
                 let hoist = false;
 
-                if (rLevel === 'miembro') {
-                    perms = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AddReactions];
-                } else if (rLevel === 'moderador') {
-                    perms = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ManageMessages, PermissionFlagsBits.MuteMembers, PermissionFlagsBits.KickMembers, PermissionFlagsBits.ManageRoles];
-                    hoist = true;
-                } else if (rLevel === 'administrador') {
-                    perms = [PermissionFlagsBits.Administrator];
-                    hoist = true;
-                } else {
-                    perms = [PermissionFlagsBits.ViewChannel];
+                switch (rLevel) {
+                    case 'member':
+                        perms = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AddReactions, PermissionFlagsBits.Connect];
+                        break;
+                    case 'moderator':
+                        perms = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ManageMessages, PermissionFlagsBits.MuteMembers, PermissionFlagsBits.KickMembers];
+                        hoist = true;
+                        break;
+                    case 'senior_mod':
+                        perms = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ManageMessages, PermissionFlagsBits.MuteMembers, PermissionFlagsBits.KickMembers, PermissionFlagsBits.BanMembers, PermissionFlagsBits.ManageRoles];
+                        hoist = true;
+                        break;
+                    case 'administrator':
+                        perms = [PermissionFlagsBits.Administrator];
+                        hoist = true;
+                        break;
+                    case 'developer':
+                        // Los devs suelen necesitar gestionar canales y el servidor además de admin
+                        perms = [PermissionFlagsBits.Administrator, PermissionFlagsBits.ManageGuild, PermissionFlagsBits.ManageChannels];
+                        hoist = true;
+                        break;
+                    default: // Decoration
+                        perms = [PermissionFlagsBits.ViewChannel];
+                        break;
                 }
 
                 const newRole = await guild.roles.create({
@@ -173,10 +190,10 @@ client.on(Events.InteractionCreate, async interaction => {
                     color: rColor.startsWith('#') ? rColor : '#95a5a6',
                     permissions: perms,
                     hoist: hoist,
-                    reason: `Warden System: Rol creado por ${member.user.tag}`
+                    reason: `Warden System: Role created by ${member.user.tag}`
                 });
 
-                return quickEmbed('🎨 Rol Creado', `**Nombre:** ${newRole}\n**Nivel:** ${rLevel || 'Decoración'}\n**Color:** ${rColor}`, newRole.hexColor, true);
+                return quickEmbed('🎭 Role Created', `**Name:** ${newRole}\n**Level:** ${rLevel || 'Decoration'}\n**Status:** Online`, newRole.hexColor, true);
 
             case 'set-admin-role':
                 const role = options.getRole('role');
