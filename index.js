@@ -21,7 +21,7 @@ const spamMap = new Map();
 
 // --- REGISTRO DE COMANDOS ---
 client.once(Events.ClientReady, async () => {
-    console.log(`🛡️ Warden Systems v3.4 [ANTI-SPAM MODE] | Online`);
+    console.log(`🛡️ Warden Systems v3.5 [EMBED UPDATE] | Online`);
     
     const commands = [
         { name: 'set-admin-role', description: 'Setup admin role', options: [{ name: 'role', type: 8, description: 'Role', required: true }] },
@@ -47,7 +47,18 @@ client.once(Events.ClientReady, async () => {
         { name: 'release', description: 'End investigation' },
         { name: 'color', description: 'Color info', options: [{ name: 'input', type: 3, description: 'Hex or Name', required: true }] },
         { name: 'echo', description: 'Bot speak', options: [{ name: 'text', type: 3, description: 'Text', required: true }] },
-        { name: 'flip', description: 'Coin flip' }
+        { name: 'flip', description: 'Coin flip' },
+        { 
+            name: 'embed', 
+            description: 'Generate a custom embed', 
+            options: [
+                { name: 'description', type: 3, description: 'Main content', required: true },
+                { name: 'title', type: 3, description: 'Embed title', required: false },
+                { name: 'color', type: 3, description: 'Hex color (e.g. #ff0000)', required: false },
+                { name: 'thumbnail', type: 3, description: 'Thumbnail URL', required: false },
+                { name: 'image', type: 3, description: 'Large image URL', required: false }
+            ] 
+        }
     ];
 
     const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -86,10 +97,9 @@ client.on(Events.InteractionCreate, async interaction => {
     if (!interaction.isChatInputCommand()) return;
     const { commandName, options, guild, member, channel } = interaction;
 
-    const isPublic = ['audit', 'flip', 'color', 'infractions', 'ban', 'kick', 'warn', 'timeout'].includes(commandName);
+    const isPublic = ['audit', 'flip', 'color', 'infractions', 'ban', 'kick', 'warn', 'timeout', 'embed'].includes(commandName);
     await interaction.deferReply({ ephemeral: !isPublic });
 
-    // Función para enviar a logs del servidor
     const sendGlobalLog = (title, desc, color) => {
         const conf = localConfig.get(guild.id);
         if (!conf || !conf.log_channel) return;
@@ -105,17 +115,16 @@ client.on(Events.InteractionCreate, async interaction => {
     };
 
     const quickEmbed = (title, desc, color = '#ffffff', logIt = false) => {
-        if (logIt) sendGlobalLog(title, desc, color); // Envío automático a logs si se requiere
+        if (logIt) sendGlobalLog(title, desc, color);
         return interaction.editReply({ 
             embeds: [new EmbedBuilder().setTitle(title).setDescription(desc).setColor(color).setTimestamp()] 
         }).catch(console.error);
     };
 
-    // SECURITY CHECK
     const config = localConfig.get(guild.id);
     const hasAuth = member.permissions.has(PermissionFlagsBits.Administrator) || (config && member.roles.cache.has(config.admin_role_id));
     
-    if (!['audit', 'flip', 'color'].includes(commandName) && !hasAuth) {
+    if (!['audit', 'flip', 'color', 'embed'].includes(commandName) && !hasAuth) {
         return quickEmbed('❌ Access Denied', 'Unauthorized. You lack permissions or Admin Role is not set.', '#ff0000');
     }
 
@@ -200,9 +209,9 @@ client.on(Events.InteractionCreate, async interaction => {
                 return quickEmbed('🎭 Role Updated', `Updated **${rgRole.name}** for **${rgMember.user.tag}**`, '#3498db', true);
 
             case 'create-channel':
-                const cName = options.getString('name');
-                const cType = options.getString('type') === 'text' ? ChannelType.GuildText : ChannelType.GuildVoice;
-                const newChan = await guild.channels.create({ name: cName, type: cType });
+                const cnName = options.getString('name');
+                const cnType = options.getString('type') === 'text' ? ChannelType.GuildText : ChannelType.GuildVoice;
+                const newChan = await guild.channels.create({ name: cnName, type: cnType });
                 return quickEmbed('✨ Channel Created', `New channel: ${newChan}`, '#2ecc71', true);
 
             case 'investigate':
@@ -224,6 +233,24 @@ client.on(Events.InteractionCreate, async interaction => {
 
             case 'flip':
                 return quickEmbed('🪙 Flip', `Result: **${Math.random() > 0.5 ? 'Heads' : 'Tails'}**`, '#f1c40f');
+
+            case 'embed':
+                const eDesc = options.getString('description');
+                const eTitle = options.getString('title');
+                const eColor = options.getString('color') || '#ffffff';
+                const eThumb = options.getString('thumbnail');
+                const eImg = options.getString('image');
+
+                const customEmbed = new EmbedBuilder()
+                    .setDescription(eDesc)
+                    .setColor(eColor.startsWith('#') ? eColor : '#ffffff')
+                    .setTimestamp();
+
+                if (eTitle) customEmbed.setTitle(eTitle);
+                if (eThumb) customEmbed.setThumbnail(eThumb);
+                if (eImg) customEmbed.setImage(eImg);
+
+                return interaction.editReply({ embeds: [customEmbed] });
 
             default:
                 return quickEmbed('❓ Unknown', 'Command logic not found.', '#7289da');
