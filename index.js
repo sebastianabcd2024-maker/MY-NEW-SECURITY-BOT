@@ -21,7 +21,7 @@ const spamMap = new Map();
 
 // --- REGISTRO DE COMANDOS ---
 client.once(Events.ClientReady, async () => {
-    console.log(`🛡️ Warden Systems v3.7 [RAILWAY STABLE] | Online`);
+    console.log(`🛡️ Warden Systems v3.8 [STABLE-EN] | Online`);
     
     const commands = [
         { name: 'set-admin-role', description: 'Setup admin role', options: [{ name: 'role', type: 8, description: 'Role', required: true }] },
@@ -205,13 +205,36 @@ client.on(Events.InteractionCreate, async interaction => {
                     UseExternalEmojis: !isLock
                 };
                 await channel.permissionOverwrites.edit(guild.roles.everyone, lockPerms);
-                return quickEmbed(isLock ? '🔐 Hard Lock' : '🔓 Unlocked', isLock ? 'Canal cerrado totalmente para @everyone.' : 'Acceso restaurado.', isLock ? '#ff0000' : '#2ecc71', true);
+                return quickEmbed(isLock ? '🔐 Hard Lock' : '🔓 Unlocked', isLock ? 'Channel fully locked for @everyone.' : 'Access restored.', isLock ? '#ff0000' : '#2ecc71', true);
 
             case 'audit':
                 const aTarget = options.getMember('user');
                 if (!aTarget) throw new Error('Target not found.');
-                const aAge = Math.floor((Date.now() - aTarget.user.createdTimestamp) / 86400000);
-                return quickEmbed(`Audit: ${aTarget.user.tag}`, `**ID:** \`${aTarget.user.id}\`\n**Account Age:** ${aAge} days\n**Status:** ${aAge >= 30 ? '✅ SAFE' : '⚠️ WARNING'}`, aAge >= 30 ? '#2ecc71' : '#ff0000');
+
+                const accountAge = Math.floor((Date.now() - aTarget.user.createdTimestamp) / 86400000);
+                const joinServer = Math.floor((Date.now() - aTarget.joinedTimestamp) / 86400000);
+                const isAdmin = aTarget.permissions.has(PermissionFlagsBits.Administrator) ? 'Yes' : 'No';
+                const isSafe = accountAge >= 30;
+
+                const auditEmbed = new EmbedBuilder()
+                    .setAuthor({ name: `Audit Report: ${aTarget.user.username}`, iconURL: aTarget.user.displayAvatarURL() })
+                    .setThumbnail(aTarget.user.displayAvatarURL())
+                    .setColor(isSafe ? '#2ecc71' : '#ff0000')
+                    .addFields(
+                        { name: '🆔 User ID', value: `\`${aTarget.user.id}\``, inline: false },
+                        { name: '👤 Username', value: aTarget.user.username, inline: true },
+                        { name: '📛 Original Name', value: aTarget.user.globalName || 'None', inline: true },
+                        { name: '🔝 Highest Role', value: `${aTarget.roles.highest}`, inline: false },
+                        { name: '🛡️ Admin Perms', value: isAdmin, inline: true },
+                        { name: '🎭 Role Count', value: `${aTarget.roles.cache.size - 1}`, inline: true },
+                        { name: '📅 Joined Discord', value: `about ${accountAge} days ago`, inline: false },
+                        { name: '📥 Joined Server', value: `about ${joinServer} days ago`, inline: false },
+                        { name: '⚖️ Security Status', value: isSafe ? '✅ **SAFE** (Account Age > 30d)' : '⚠️ **WARNING** (New Account)', inline: false }
+                    )
+                    .setFooter({ text: `Account Age: ${accountAge} days` })
+                    .setTimestamp();
+
+                return interaction.editReply({ embeds: [auditEmbed] });
 
             case 'role-give':
             case 'role-take':
@@ -268,7 +291,7 @@ client.on(Events.InteractionCreate, async interaction => {
     }
 });
 
-// --- ANTI-CRASH SYSTEM (Railway Essential) ---
+// --- ANTI-CRASH SYSTEM ---
 process.on('unhandledRejection', (reason, promise) => {
     console.error('🛡️ Global Error (Rejection):', reason);
 });
