@@ -12,7 +12,7 @@ const client = new Client({
 });
 
 const APP_ID = "1495239262579195986"; 
-const TOKEN = process.env.TOKEN; // Asegúrate de tener tu token aquí
+const TOKEN = process.env.TOKEN;
 
 // --- STORAGE LOCAL ---
 const localConfig = new Map(); 
@@ -21,7 +21,7 @@ const spamMap = new Map();
 
 // --- REGISTRO DE COMANDOS ---
 client.once(Events.ClientReady, async () => {
-    console.log(`🛡️ Warden Systems v4.0 [PURGE-EXPANSION] | Online`);
+    console.log(`🛡️ Warden Systems v4.0 [FULL-LOCK-INTEGRATION] | Online`);
     
     const commands = [
         { name: 'set-admin-role', description: 'Setup admin role', options: [{ name: 'role', type: 8, description: 'Role', required: true }] },
@@ -75,8 +75,8 @@ client.once(Events.ClientReady, async () => {
             description: 'Delete all messages sent after a specific Message ID',
             options: [{ name: 'message_id', type: 3, description: 'The ID of the message to start cleaning from', required: true }]
         },
-        { name: 'lock', description: 'Lock channel' },
-        { name: 'unlock', description: 'Unlock channel' },
+        { name: 'lock', description: 'Full channel lockdown' },
+        { name: 'unlock', description: 'Unlock channel interactions' },
         { name: 'investigate', description: 'Private isolation', options: [{ name: 'user', type: 6, description: 'Target', required: true }] },
         { name: 'release', description: 'End investigation' },
         { name: 'color', description: 'Color info', options: [{ name: 'input', type: 3, description: 'Hex or Name', required: true }] },
@@ -173,9 +173,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 const pAmount = Math.min(options.getInteger('amount'), 100);
                 const pTarget = options.getUser('user');
                 const pFetched = await channel.messages.fetch({ limit: pAmount });
-                
                 let pToDelete = pTarget ? pFetched.filter(m => m.author.id === pTarget.id) : pFetched;
-                
                 if (pToDelete.size === 0) throw new Error('No messages found to delete.');
                 const pDeleted = await channel.bulkDelete(pToDelete, true);
                 return quickEmbed('🧹 Purge', `Deleted **${pDeleted.size}** messages${pTarget ? ` from ${pTarget.tag}` : ''}.`, '#95a5a6', true);
@@ -183,7 +181,6 @@ client.on(Events.InteractionCreate, async interaction => {
             case 'purge-after':
                 const msgId = options.getString('message_id');
                 const paFetched = await channel.messages.fetch({ after: msgId, limit: 100 });
-                
                 if (paFetched.size === 0) throw new Error('No messages found after this ID.');
                 const paDeleted = await channel.bulkDelete(paFetched, true);
                 return quickEmbed('🧹 Purge After', `Deleted **${paDeleted.size}** messages sent after ID: \`${msgId}\`.`, '#95a5a6', true);
@@ -200,7 +197,6 @@ client.on(Events.InteractionCreate, async interaction => {
                 const rColor = options.getString('color') || '#95a5a6';
                 const rLevel = options.getString('level');
                 let perms = []; let hoist = false;
-
                 switch (rLevel) {
                     case 'member': perms = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]; break;
                     case 'moderator': perms = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ManageMessages, PermissionFlagsBits.KickMembers]; hoist = true; break;
@@ -209,7 +205,6 @@ client.on(Events.InteractionCreate, async interaction => {
                     case 'developer': perms = [PermissionFlagsBits.Administrator, PermissionFlagsBits.ManageGuild]; hoist = true; break;
                     default: perms = [PermissionFlagsBits.ViewChannel]; break;
                 }
-
                 const newRole = await guild.roles.create({ name: rName, color: rColor.startsWith('#') ? rColor : '#95a5a6', permissions: perms, hoist: hoist });
                 return quickEmbed('🎭 Role Created', `**Name:** ${newRole}\n**Level:** ${rLevel || 'Decoration'}`, newRole.hexColor, true);
 
@@ -268,17 +263,23 @@ client.on(Events.InteractionCreate, async interaction => {
             case 'lock':
             case 'unlock':
                 const isLock = commandName === 'lock';
-                await channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: !isLock });
-                return quickEmbed(isLock ? '🔐 Locked' : '🔓 Unlocked', isLock ? 'Channel locked.' : 'Restored.', isLock ? '#ff0000' : '#2ecc71', true);
+                const lockPerms = {
+                    SendMessages: !isLock,
+                    AddReactions: !isLock,
+                    CreatePublicThreads: !isLock,
+                    CreatePrivateThreads: !isLock,
+                    SendMessagesInThreads: !isLock,
+                    UseExternalEmojis: !isLock,
+                    UseExternalStickers: !isLock
+                };
+                await channel.permissionOverwrites.edit(guild.roles.everyone, lockPerms);
+                return quickEmbed(isLock ? '🔐 Canal Bloqueado' : '🔓 Canal Desbloqueado', isLock ? 'Restricción total aplicada (Solo lectura).' : 'Interacciones restauradas.', isLock ? '#ff0000' : '#2ecc71', true);
 
             case 'audit':
                 const aTarget = options.getMember('user');
                 if (!aTarget) throw new Error('Not found.');
-
                 const accountAgeDays = Math.floor((Date.now() - aTarget.user.createdTimestamp) / 86400000);
                 const joinedServerDays = Math.floor((Date.now() - aTarget.joinedTimestamp) / 86400000);
-                
-                // Formateo de tiempo (español como la imagen)
                 const joinedDiscordStr = accountAgeDays > 365 ? `hace ${Math.floor(accountAgeDays / 365)} años` : `hace ${accountAgeDays} días`;
                 const joinedServerStr = joinedServerDays < 1 ? "hoy" : (joinedServerDays > 30 ? `hace ${Math.floor(joinedServerDays / 30)} mes` : `hace ${joinedServerDays} días`);
 
@@ -295,10 +296,8 @@ client.on(Events.InteractionCreate, async interaction => {
                         { name: '🎭 Role Count', value: `**${aTarget.roles.cache.size - 1}**` },
                         { name: '📅 Joined Discord', value: `**${joinedDiscordStr}**` },
                         { name: '📥 Joined Server', value: `**${joinedServerStr}**` },
-                        { name: '⚖️ Security Status', value: accountAgeDays > 30 ? '✅ **SAFE** (Account Age > 30d)' : '⚠️ **SUSPICIOUS** (New Account)' }
-                    )
-                    .setFooter({ text: `Account Age: ${accountAgeDays} days` });
-
+                        { name: '⚖️ Security Status', value: accountAgeDays > 30 ? '✅ **SAFE**' : '⚠️ **SUSPICIOUS**' }
+                    ).setFooter({ text: `Account Age: ${accountAgeDays} days` });
                 return interaction.editReply({ embeds: [auditEmbed] });
 
             case 'role-give':
