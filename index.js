@@ -12,7 +12,7 @@ const client = new Client({
 });
 
 const APP_ID = "1495239262579195986"; 
-const TOKEN = process.env.DISCORD_TOKEN;
+const TOKEN = process.env.TOKEN; // Asegúrate de tener tu token aquí
 
 // --- STORAGE LOCAL ---
 const localConfig = new Map(); 
@@ -62,7 +62,6 @@ client.once(Events.ClientReady, async () => {
             { name: 'name', type: 3, description: 'Channel name', required: true },
             { name: 'type', type: 3, description: 'Text or Voice', required: true, choices: [{ name: 'Text', value: 'text' }, { name: 'Voice', value: 'voice' }] }
         ]},
-        // PURGE MEJORADO
         { 
             name: 'purge', 
             description: 'Delete messages with optional user filter', 
@@ -71,7 +70,6 @@ client.once(Events.ClientReady, async () => {
                 { name: 'user', type: 6, description: 'Specific user to clean', required: false }
             ] 
         },
-        // PURGE AFTER (ID)
         {
             name: 'purge-after',
             description: 'Delete all messages sent after a specific Message ID',
@@ -184,7 +182,6 @@ client.on(Events.InteractionCreate, async interaction => {
 
             case 'purge-after':
                 const msgId = options.getString('message_id');
-                // Buscamos los mensajes que están después del ID proporcionado
                 const paFetched = await channel.messages.fetch({ after: msgId, limit: 100 });
                 
                 if (paFetched.size === 0) throw new Error('No messages found after this ID.');
@@ -277,10 +274,31 @@ client.on(Events.InteractionCreate, async interaction => {
             case 'audit':
                 const aTarget = options.getMember('user');
                 if (!aTarget) throw new Error('Not found.');
-                const age = Math.floor((Date.now() - aTarget.user.createdTimestamp) / 86400000);
+
+                const accountAgeDays = Math.floor((Date.now() - aTarget.user.createdTimestamp) / 86400000);
+                const joinedServerDays = Math.floor((Date.now() - aTarget.joinedTimestamp) / 86400000);
+                
+                // Formateo de tiempo (español como la imagen)
+                const joinedDiscordStr = accountAgeDays > 365 ? `hace ${Math.floor(accountAgeDays / 365)} años` : `hace ${accountAgeDays} días`;
+                const joinedServerStr = joinedServerDays < 1 ? "hoy" : (joinedServerDays > 30 ? `hace ${Math.floor(joinedServerDays / 30)} mes` : `hace ${joinedServerDays} días`);
+
                 const auditEmbed = new EmbedBuilder()
-                    .setTitle(`Audit: ${aTarget.user.username}`).setColor(age >= 30 ? '#2ecc71' : '#ff0000')
-                    .addFields({ name: '🆔 ID', value: `\`${aTarget.user.id}\`` }, { name: '📅 Age', value: `${age} days` });
+                    .setAuthor({ name: `Audit Report: ${aTarget.user.username}`, iconURL: aTarget.user.displayAvatarURL() })
+                    .setThumbnail('https://i.imgur.com/8Nf9yUn.png') 
+                    .setColor(accountAgeDays > 30 ? '#2ecc71' : '#ff0000')
+                    .addFields(
+                        { name: '🆔 User ID', value: `**${aTarget.user.id}**` },
+                        { name: '👤 Username', value: `**${aTarget.user.username}**` },
+                        { name: '📛 Original Name', value: `**${aTarget.user.globalName || aTarget.user.username}**` },
+                        { name: '🔝 Highest Role', value: `${aTarget.roles.highest}` },
+                        { name: '🛡️ Admin Perms', value: `**${aTarget.permissions.has(PermissionFlagsBits.Administrator) ? 'Yes' : 'No'}**` },
+                        { name: '🎭 Role Count', value: `**${aTarget.roles.cache.size - 1}**` },
+                        { name: '📅 Joined Discord', value: `**${joinedDiscordStr}**` },
+                        { name: '📥 Joined Server', value: `**${joinedServerStr}**` },
+                        { name: '⚖️ Security Status', value: accountAgeDays > 30 ? '✅ **SAFE** (Account Age > 30d)' : '⚠️ **SUSPICIOUS** (New Account)' }
+                    )
+                    .setFooter({ text: `Account Age: ${accountAgeDays} days` });
+
                 return interaction.editReply({ embeds: [auditEmbed] });
 
             case 'role-give':
