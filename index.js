@@ -273,7 +273,7 @@ client.on(Events.InteractionCreate, async interaction => {
                     UseExternalStickers: !isLock
                 };
                 await channel.permissionOverwrites.edit(guild.roles.everyone, lockPerms);
-                return quickEmbed(isLock ? '🔐 Canal Bloqueado' : '🔓 Canal Desbloqueado', isLock ? 'Restricción total aplicada (Solo lectura).' : 'Interacciones restauradas.', isLock ? '#ff0000' : '#2ecc71', true);
+                return quickEmbed(isLock ? '🔐 Channel locked' : '🔓 Channel Unlocked', isLock ? 'This Channel is now locked.' : 'This Channel is now unlocked.', isLock ? '#ff0000' : '#2ecc71', true);
 
             case 'audit':
                 const aTarget = options.getMember('user');
