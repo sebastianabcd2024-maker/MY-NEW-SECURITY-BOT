@@ -220,9 +220,9 @@ client.on(Events.InteractionCreate, async interaction => {
 
             case 'ban':
                 const bUser = options.getUser('user');
-                const bReason = options.getString('reason') || 'No reason';
+                const bReason = options.getString('reason') || 'reason: no one';
                 await guild.members.ban(bUser, { reason: bReason });
-                return quickEmbed('🔨 Ban Applied', `**Target:** ${bUser.tag}`, '#ff0000', true);
+                return quickEmbed('🔨 Ban Applied', `**Target:** ${bUser.tag}\n**Reason:** ${bReason}`, '#ff0000', true);
 
             case 'unban':
                 const uId = options.getString('user_id');
@@ -232,15 +232,17 @@ client.on(Events.InteractionCreate, async interaction => {
             case 'kick':
                 const kMember = options.getMember('user');
                 if (!kMember || !kMember.kickable) throw new Error('Cannot kick.');
-                await kMember.kick(options.getString('reason') || 'No reason');
-                return quickEmbed('🚀 Kicked', `User **${kMember.user.tag}** removed.`, '#e67e22', true);
+                const kReason = options.getString('reason') || 'reason: no one';
+                await kMember.kick(kReason);
+                return quickEmbed('🚀 Kicked', `User **${kMember.user.tag}** removed.\n**Reason:** ${kReason}`, '#e67e22', true);
 
             case 'warn':
                 const wUser = options.getUser('user');
                 const warns = localWarns.get(wUser.id) || [];
-                warns.push({ date: new Date().toLocaleDateString(), reason: options.getString('reason') });
+                const wReason = options.getString('reason') || 'reason: no one';
+                warns.push({ date: new Date().toLocaleDateString(), reason: wReason });
                 localWarns.set(wUser.id, warns);
-                return quickEmbed('⚠️ Warning Issued', `**Target:** ${wUser}\n**Total:** ${warns.length}`, '#f1c40f', true);
+                return quickEmbed('⚠️ Warning Issued', `**Target:** ${wUser}\n**Reason:** ${wReason}\n**Total:** ${warns.length}`, '#f1c40f', true);
 
             case 'infractions':
                 const iUser = options.getUser('user');
@@ -252,8 +254,9 @@ client.on(Events.InteractionCreate, async interaction => {
                 const tMember = options.getMember('user');
                 if (!tMember || !tMember.manageable) throw new Error('Cannot mute.');
                 const tMin = options.getInteger('minutes');
-                await tMember.timeout(tMin * 60000, options.getString('reason') || 'No reason');
-                return quickEmbed('⏳ Timeout', `${tMember.user.tag} muted for ${tMin}m.`, '#e67e22', true);
+                const tReason = options.getString('reason') || 'reason: no one';
+                await tMember.timeout(tMin * 60000, tReason);
+                return quickEmbed('⏳ Timeout', `${tMember.user.tag} muted for ${tMin}m.\n**Reason:** ${tReason}`, '#e67e22', true);
 
             case 'unmute':
                 const umMember = options.getMember('user');
@@ -273,15 +276,15 @@ client.on(Events.InteractionCreate, async interaction => {
                     UseExternalStickers: !isLock
                 };
                 await channel.permissionOverwrites.edit(guild.roles.everyone, lockPerms);
-                return quickEmbed(isLock ? '🔐 Channel locked' : '🔓 Channel Unlocked', isLock ? 'This Channel is now locked.' : 'This Channel is now unlocked.', isLock ? '#ff0000' : '#2ecc71', true);
+                return quickEmbed(isLock ? '🔐 Channel Locked' : '🔓 Channel Unlocked', isLock ? 'Full restriction applied (Read-only).' : 'Interactions restored.', isLock ? '#ff0000' : '#2ecc71', true);
 
             case 'audit':
                 const aTarget = options.getMember('user');
                 if (!aTarget) throw new Error('Not found.');
                 const accountAgeDays = Math.floor((Date.now() - aTarget.user.createdTimestamp) / 86400000);
                 const joinedServerDays = Math.floor((Date.now() - aTarget.joinedTimestamp) / 86400000);
-                const joinedDiscordStr = accountAgeDays > 365 ? `hace ${Math.floor(accountAgeDays / 365)} años` : `hace ${accountAgeDays} días`;
-                const joinedServerStr = joinedServerDays < 1 ? "hoy" : (joinedServerDays > 30 ? `hace ${Math.floor(joinedServerDays / 30)} mes` : `hace ${joinedServerDays} días`);
+                const joinedDiscordStr = accountAgeDays > 365 ? `${Math.floor(accountAgeDays / 365)} years ago` : `${accountAgeDays} days ago`;
+                const joinedServerStr = joinedServerDays < 1 ? "today" : (joinedServerDays > 30 ? `${Math.floor(joinedServerDays / 30)} months ago` : `${joinedServerDays} days ago`);
 
                 const auditEmbed = new EmbedBuilder()
                     .setAuthor({ name: `Audit Report: ${aTarget.user.username}`, iconURL: aTarget.user.displayAvatarURL() })
