@@ -21,7 +21,7 @@ const spamMap = new Map();
 
 // --- REGISTRO DE COMANDOS ---
 client.once(Events.ClientReady, async () => {
-    console.log(`🛡️ Warden Systems v4.0 [FULL-LOCK-INTEGRATION] | Online`);
+    console.log(`🛡️ Warden Systems v4.1 [SLOWMODE-UPDATE] | Online`);
     
     const commands = [
         { name: 'set-admin-role', description: 'Setup admin role', options: [{ name: 'role', type: 8, description: 'Role', required: true }] },
@@ -33,6 +33,14 @@ client.once(Events.ClientReady, async () => {
                 { name: 'limit', type: 4, description: 'Message limit', required: true },
                 { name: 'seconds', type: 4, description: 'Time window', required: true },
                 { name: 'immune_role', type: 8, description: 'Role that bypasses anti-spam', required: false }
+            ] 
+        },
+        { 
+            name: 'slowmode', 
+            description: 'Set channel slowmode', 
+            options: [
+                { name: 'seconds', type: 4, description: 'Seconds (0 to disable)', required: true },
+                { name: 'reason', type: 3, description: 'Reason for slowmode', required: false }
             ] 
         },
         { name: 'audit', description: 'User security analysis', options: [{ name: 'user', type: 6, description: 'User', required: true }] },
@@ -169,6 +177,17 @@ client.on(Events.InteractionCreate, async interaction => {
 
     try {
         switch (commandName) {
+            case 'slowmode':
+                const seconds = options.getInteger('seconds');
+                const sReason = options.getString('reason') || 'No reason provided';
+                await channel.setRateLimitPerUser(seconds, sReason);
+                return quickEmbed(
+                    '⏲️ Slowmode Updated', 
+                    `The slowmode has been set to **${seconds}** seconds.\n**Reason:** ${sReason}`, 
+                    '#3498db', 
+                    true
+                );
+
             case 'purge':
                 const pAmount = Math.min(options.getInteger('amount'), 100);
                 const pTarget = options.getUser('user');
