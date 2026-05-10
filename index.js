@@ -360,4 +360,16 @@ client.on(Events.InteractionCreate, async interaction => {
 process.on('unhandledRejection', r => console.error('🛡️ Rejection:', r));
 process.on('uncaughtException', e => console.error('🛡️ Exception:', e));
 
+// BORRADOR TOTAL (Úsalo una vez y luego quítalo)
+const rest = new REST({ version: '10' }).setToken(TOKEN);
+try {
+    console.log('🧹 Limpiando comandos antiguos...');
+    // Esto borra los globales
+    await rest.put(Routes.applicationCommands(APP_ID), { body: [] });
+    // Si alguna vez usaste comandos de servidor, pon la ID de tu server aquí:
+    // await rest.put(Routes.applicationGuildCommands(APP_ID, 'TU_SERVER_ID'), { body: [] });
+    console.log('✅ Comandos borrados. Ahora reinicia el bot con tu código normal.');
+} catch (e) { console.error(e); }
+
+
 client.login(TOKEN);
