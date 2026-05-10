@@ -12,7 +12,7 @@ const client = new Client({
 });
 
 const APP_ID = "1495239262579195986"; 
-const TOKEN = process.env.TOKEN;
+const TOKEN = process.env.DISCORD_TOKEN; // Actualizado para Railway
 
 // --- STORAGE LOCAL ---
 const localConfig = new Map(); 
@@ -21,7 +21,7 @@ const spamMap = new Map();
 
 // --- REGISTRO DE COMANDOS ---
 client.once(Events.ClientReady, async () => {
-    console.log(`🛡️ Warden Systems v4.1 [CLEAN-VERSION] | Online`);
+    console.log(`🛡️ Warden Systems v4.1 [HIERARCHY-UPDATE] | Online`);
 
     const commands = [
         { name: 'set-admin-role', description: 'Setup admin role', options: [{ name: 'role', type: 8, description: 'Role', required: true }] },
@@ -179,12 +179,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 const seconds = options.getInteger('seconds');
                 const sReason = options.getString('reason') || 'No reason provided';
                 await channel.setRateLimitPerUser(seconds, sReason);
-                return quickEmbed(
-                    '⏲️ Slowmode Updated', 
-                    `The slowmode has been set to **${seconds}** seconds.\n**Reason:** ${sReason}`, 
-                    '#3498db', 
-                    true
-                );
+                return quickEmbed('⏲️ Slowmode Updated', `The slowmode has been set to **${seconds}** seconds.\n**Reason:** ${sReason}`, '#3498db', true);
 
             case 'purge':
                 const pAmount = Math.min(options.getInteger('amount'), 100);
@@ -237,7 +232,11 @@ client.on(Events.InteractionCreate, async interaction => {
 
             case 'ban':
                 const bUser = options.getUser('user');
-                const bReason = options.getString('reason') || 'reason: no one';
+                const bMember = await guild.members.fetch(bUser.id).catch(() => null);
+                if (bMember && bMember.roles.highest.position >= member.roles.highest.position) {
+                    return quickEmbed('❌ Hierarchy Error', 'You cannot ban a user with a same or higher role.', '#ff0000');
+                }
+                const bReason = options.getString('reason') || 'No reason provided';
                 await guild.members.ban(bUser, { reason: bReason });
                 return quickEmbed('🔨 Ban Applied', `**Target:** ${bUser.tag}\n**Reason:** ${bReason}`, '#ff0000', true);
 
@@ -249,14 +248,21 @@ client.on(Events.InteractionCreate, async interaction => {
             case 'kick':
                 const kMember = options.getMember('user');
                 if (!kMember || !kMember.kickable) throw new Error('Cannot kick.');
-                const kReason = options.getString('reason') || 'reason: no one';
+                if (kMember.roles.highest.position >= member.roles.highest.position) {
+                    return quickEmbed('❌ Hierarchy Error', 'You cannot kick a user with a same or higher role.', '#ff0000');
+                }
+                const kReason = options.getString('reason') || 'No reason provided';
                 await kMember.kick(kReason);
                 return quickEmbed('🚀 Kicked', `User **${kMember.user.tag}** removed.\n**Reason:** ${kReason}`, '#e67e22', true);
 
             case 'warn':
                 const wUser = options.getUser('user');
+                const wMember = await guild.members.fetch(wUser.id).catch(() => null);
+                if (wMember && wMember.roles.highest.position >= member.roles.highest.position) {
+                    return quickEmbed('❌ Hierarchy Error', 'You cannot warn a user with a same or higher role.', '#ff0000');
+                }
                 const warns = localWarns.get(wUser.id) || [];
-                const wReason = options.getString('reason') || 'reason: no one';
+                const wReason = options.getString('reason') || 'No reason provided';
                 warns.push({ date: new Date().toLocaleDateString(), reason: wReason });
                 localWarns.set(wUser.id, warns);
                 return quickEmbed('⚠️ Warning Issued', `**Target:** ${wUser}\n**Reason:** ${wReason}\n**Total:** ${warns.length}`, '#f1c40f', true);
@@ -270,20 +276,26 @@ client.on(Events.InteractionCreate, async interaction => {
             case 'timeout':
                 const tMember = options.getMember('user');
                 if (!tMember || !tMember.manageable) throw new Error('Cannot mute.');
+                if (tMember.roles.highest.position >= member.roles.highest.position) {
+                    return quickEmbed('❌ Hierarchy Error', 'You cannot mute a user with a same or higher role.', '#ff0000');
+                }
                 const tMin = options.getInteger('minutes');
-                const tReason = options.getString('reason') || 'reason: no one';
+                const tReason = options.getString('reason') || 'No reason provided';
                 await tMember.timeout(tMin * 60000, tReason);
                 return quickEmbed('⏳ Timeout', `${tMember.user.tag} muted for ${tMin}m.\n**Reason:** ${tReason}`, '#e67e22', true);
 
             case 'unmute':
                 const umMember = options.getMember('user');
+                if (umMember && umMember.roles.highest.position >= member.roles.highest.position) {
+                    return quickEmbed('❌ Hierarchy Error', 'You cannot unmute a user with a same or higher role.', '#ff0000');
+                }
                 await umMember?.timeout(null);
                 return quickEmbed('🔊 Unmuted', `${umMember?.user.tag} restored.`, '#2ecc71', true);
 
             case 'lock':
             case 'unlock':
                 const isLock = commandName === 'lock';
-                const lockPerms = {
+                await channel.permissionOverwrites.edit(guild.roles.everyone, {
                     SendMessages: !isLock,
                     AddReactions: !isLock,
                     CreatePublicThreads: !isLock,
@@ -291,8 +303,7 @@ client.on(Events.InteractionCreate, async interaction => {
                     SendMessagesInThreads: !isLock,
                     UseExternalEmojis: !isLock,
                     UseExternalStickers: !isLock
-                };
-                await channel.permissionOverwrites.edit(guild.roles.everyone, lockPerms);
+                });
                 return quickEmbed(isLock ? '🔐 Channel Locked' : '🔓 Channel Unlocked', isLock ? 'Full restriction applied (Read-only).' : 'Interactions restored.', isLock ? '#ff0000' : '#2ecc71', true);
 
             case 'audit':
@@ -309,11 +320,8 @@ client.on(Events.InteractionCreate, async interaction => {
                     .setColor(accountAgeDays > 30 ? '#2ecc71' : '#ff0000')
                     .addFields(
                         { name: '🆔 User ID', value: `**${aTarget.user.id}**` },
-                        { name: '👤 Username', value: `**${aTarget.user.username}**` },
-                        { name: '📛 Original Name', value: `**${aTarget.user.globalName || aTarget.user.username}**` },
                         { name: '🔝 Highest Role', value: `${aTarget.roles.highest}` },
                         { name: '🛡️ Admin Perms', value: `**${aTarget.permissions.has(PermissionFlagsBits.Administrator) ? 'Yes' : 'No'}**` },
-                        { name: '🎭 Role Count', value: `**${aTarget.roles.cache.size - 1}**` },
                         { name: '📅 Joined Discord', value: `**${joinedDiscordStr}**` },
                         { name: '📥 Joined Server', value: `**${joinedServerStr}**` },
                         { name: '⚖️ Security Status', value: accountAgeDays > 30 ? '✅ **SAFE**' : '⚠️ **SUSPICIOUS**' }
@@ -324,6 +332,12 @@ client.on(Events.InteractionCreate, async interaction => {
             case 'role-take':
                 const rgMember = options.getMember('user');
                 const rgRole = options.getRole('role');
+                if (rgMember.roles.highest.position >= member.roles.highest.position) {
+                    return quickEmbed('❌ Hierarchy Error', 'You cannot modify roles of a user with a same or higher role.', '#ff0000');
+                }
+                if (rgRole.position >= member.roles.highest.position) {
+                    return quickEmbed('❌ Hierarchy Error', 'You cannot manage a role that is same or higher than yours.', '#ff0000');
+                }
                 commandName === 'role-give' ? await rgMember.roles.add(rgRole) : await rgMember.roles.remove(rgRole);
                 return quickEmbed('🎭 Role Updated', `User: ${rgMember.user.tag}`, '#3498db', true);
 
