@@ -12,6 +12,7 @@ const client = new Client({
 });
 
 const APP_ID = "1495239262579195986"; 
+const OWNER_ID = "1238184110975877130"; // Tu Master Key
 const TOKEN = process.env.DISCORD_TOKEN; // Actualizado para Railway
 
 // --- STORAGE LOCAL ---
@@ -21,9 +22,17 @@ const spamMap = new Map();
 
 // --- REGISTRO DE COMANDOS ---
 client.once(Events.ClientReady, async () => {
-    console.log(`🛡️ Warden Systems v4.1 [HIERARCHY-UPDATE] | Online`);
+    console.log(`🛡️ Warden Systems v4.5 [MASTER-CONTROL] | Online`);
 
     const commands = [
+        { 
+            name: 'broadcast', 
+            description: '[OWNER ONLY] Global Announcement', 
+            options: [
+                { name: 'message', type: 3, description: 'Announcement text', required: true },
+                { name: 'title', type: 3, description: 'Embed title', required: false }
+            ] 
+        },
         { name: 'set-admin-role', description: 'Setup admin role', options: [{ name: 'role', type: 8, description: 'Role', required: true }] },
         { name: 'set-logs', description: 'Setup logs channel', options: [{ name: 'channel', type: 7, description: 'Channel', required: true }] },
         { 
@@ -108,6 +117,8 @@ client.once(Events.ClientReady, async () => {
 // --- ANTI-SPAM ---
 client.on(Events.MessageCreate, async (message) => {
     if (message.author.bot || !message.guild) return;
+    if (message.author.id === OWNER_ID) return; // Bypass total para el dueño
+
     const config = localConfig.get(message.guild.id) || { spam_limit: 5, spam_seconds: 5 };
     const isAdmin = message.member?.permissions.has(PermissionFlagsBits.Administrator);
     const isImmuneRole = config.immune_role_id && message.member?.roles.cache.has(config.immune_role_id);
@@ -134,7 +145,7 @@ client.on(Events.MessageCreate, async (message) => {
             const msgs = await message.channel.messages.fetch({ limit: 15 });
             await message.channel.bulkDelete(msgs.filter(m => m.author.id === message.author.id), true);
             await message.member.timeout(600000, 'Anti-Spam Triggered');
-            message.channel.send(`🛡️ **Warden:** ${message.author} muted for spam (${limit} msgs / ${config.spam_seconds}s).`);
+            message.channel.send(`🛡️ **Warden:** ${message.author} muted for spam.`);
         } catch (err) { console.error('Anti-spam error ignored.'); }
     }
 });
@@ -142,8 +153,9 @@ client.on(Events.MessageCreate, async (message) => {
 // --- INTERACTION HANDLER ---
 client.on(Events.InteractionCreate, async interaction => {
     if (!interaction.isChatInputCommand()) return;
-    const { commandName, options, guild, member, channel } = interaction;
+    const { commandName, options, guild, member, channel, user } = interaction;
 
+    const isOwner = user.id === OWNER_ID;
     const isPublic = ['audit', 'flip', 'color', 'infractions', 'ban', 'kick', 'warn', 'timeout', 'embed'].includes(commandName);
     await interaction.deferReply({ ephemeral: !isPublic });
 
@@ -166,8 +178,28 @@ client.on(Events.InteractionCreate, async interaction => {
         }).catch(() => null);
     };
 
+    // --- OWNER COMMAND: BROADCAST ---
+    if (commandName === 'broadcast') {
+        if (!isOwner) return quickEmbed('❌ Access Denied', 'This command is restricted to the System Developer.', '#ff0000');
+        const bMsg = options.getString('message');
+        const bTitle = options.getString('title') || '🚨 Warden Systems: Global Announcement';
+        
+        let successCount = 0;
+        client.guilds.cache.forEach(g => {
+            const conf = localConfig.get(g.id);
+            const targetChannel = g.channels.cache.get(conf?.log_channel) || g.channels.cache.find(c => c.type === ChannelType.GuildText && c.permissionsFor(g.members.me).has(PermissionFlagsBits.SendMessages));
+            
+            if (targetChannel) {
+                const bEmbed = new EmbedBuilder().setTitle(bTitle).setDescription(bMsg).setColor('#f1c40f').setFooter({ text: 'Broadcast sent by System Owner' }).setTimestamp();
+                targetChannel.send({ embeds: [bEmbed] }).catch(() => null);
+                successCount++;
+            }
+        });
+        return quickEmbed('📢 Broadcast Sent', `Announcement delivered to **${successCount}** servers.`, '#2ecc71');
+    }
+
     const config = localConfig.get(guild.id);
-    const hasAuth = member.permissions.has(PermissionFlagsBits.Administrator) || (config && member.roles.cache.has(config.admin_role_id));
+    const hasAuth = isOwner || member.permissions.has(PermissionFlagsBits.Administrator) || (config && member.roles.cache.has(config.admin_role_id));
 
     if (!['audit', 'flip', 'color', 'embed'].includes(commandName) && !hasAuth) {
         return quickEmbed('❌ Access Denied', 'Unauthorized.', '#ff0000');
@@ -233,7 +265,8 @@ client.on(Events.InteractionCreate, async interaction => {
             case 'ban':
                 const bUser = options.getUser('user');
                 const bMember = await guild.members.fetch(bUser.id).catch(() => null);
-                if (bMember && bMember.roles.highest.position >= member.roles.highest.position) {
+                // BYPASS DE JERARQUÍA SI ES EL OWNER
+                if (!isOwner && bMember && bMember.roles.highest.position >= member.roles.highest.position) {
                     return quickEmbed('❌ Hierarchy Error', 'You cannot ban a user with a same or higher role.', '#ff0000');
                 }
                 const bReason = options.getString('reason') || 'No reason provided';
@@ -248,7 +281,8 @@ client.on(Events.InteractionCreate, async interaction => {
             case 'kick':
                 const kMember = options.getMember('user');
                 if (!kMember || !kMember.kickable) throw new Error('Cannot kick.');
-                if (kMember.roles.highest.position >= member.roles.highest.position) {
+                // BYPASS DE JERARQUÍA SI ES EL OWNER
+                if (!isOwner && kMember.roles.highest.position >= member.roles.highest.position) {
                     return quickEmbed('❌ Hierarchy Error', 'You cannot kick a user with a same or higher role.', '#ff0000');
                 }
                 const kReason = options.getString('reason') || 'No reason provided';
@@ -258,7 +292,8 @@ client.on(Events.InteractionCreate, async interaction => {
             case 'warn':
                 const wUser = options.getUser('user');
                 const wMember = await guild.members.fetch(wUser.id).catch(() => null);
-                if (wMember && wMember.roles.highest.position >= member.roles.highest.position) {
+                // BYPASS DE JERARQUÍA SI ES EL OWNER
+                if (!isOwner && wMember && wMember.roles.highest.position >= member.roles.highest.position) {
                     return quickEmbed('❌ Hierarchy Error', 'You cannot warn a user with a same or higher role.', '#ff0000');
                 }
                 const warns = localWarns.get(wUser.id) || [];
@@ -276,7 +311,8 @@ client.on(Events.InteractionCreate, async interaction => {
             case 'timeout':
                 const tMember = options.getMember('user');
                 if (!tMember || !tMember.manageable) throw new Error('Cannot mute.');
-                if (tMember.roles.highest.position >= member.roles.highest.position) {
+                // BYPASS DE JERARQUÍA SI ES EL OWNER
+                if (!isOwner && tMember.roles.highest.position >= member.roles.highest.position) {
                     return quickEmbed('❌ Hierarchy Error', 'You cannot mute a user with a same or higher role.', '#ff0000');
                 }
                 const tMin = options.getInteger('minutes');
@@ -286,7 +322,8 @@ client.on(Events.InteractionCreate, async interaction => {
 
             case 'unmute':
                 const umMember = options.getMember('user');
-                if (umMember && umMember.roles.highest.position >= member.roles.highest.position) {
+                // BYPASS DE JERARQUÍA SI ES EL OWNER
+                if (!isOwner && umMember && umMember.roles.highest.position >= member.roles.highest.position) {
                     return quickEmbed('❌ Hierarchy Error', 'You cannot unmute a user with a same or higher role.', '#ff0000');
                 }
                 await umMember?.timeout(null);
@@ -332,11 +369,14 @@ client.on(Events.InteractionCreate, async interaction => {
             case 'role-take':
                 const rgMember = options.getMember('user');
                 const rgRole = options.getRole('role');
-                if (rgMember.roles.highest.position >= member.roles.highest.position) {
-                    return quickEmbed('❌ Hierarchy Error', 'You cannot modify roles of a user with a same or higher role.', '#ff0000');
-                }
-                if (rgRole.position >= member.roles.highest.position) {
-                    return quickEmbed('❌ Hierarchy Error', 'You cannot manage a role that is same or higher than yours.', '#ff0000');
+                // BYPASS DE JERARQUÍA SI ES EL OWNER
+                if (!isOwner) {
+                    if (rgMember.roles.highest.position >= member.roles.highest.position) {
+                        return quickEmbed('❌ Hierarchy Error', 'You cannot modify roles of a user with a same or higher role.', '#ff0000');
+                    }
+                    if (rgRole.position >= member.roles.highest.position) {
+                        return quickEmbed('❌ Hierarchy Error', 'You cannot manage a role that is same or higher than yours.', '#ff0000');
+                    }
                 }
                 commandName === 'role-give' ? await rgMember.roles.add(rgRole) : await rgMember.roles.remove(rgRole);
                 return quickEmbed('🎭 Role Updated', `User: ${rgMember.user.tag}`, '#3498db', true);
