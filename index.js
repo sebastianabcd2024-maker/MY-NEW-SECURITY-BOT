@@ -21,8 +21,8 @@ const spamMap = new Map();
 
 // --- REGISTRO DE COMANDOS ---
 client.once(Events.ClientReady, async () => {
-    console.log(`🛡️ Warden Systems v4.1 [SLOWMODE-UPDATE] | Online`);
-    
+    console.log(`🛡️ Warden Systems v4.1 [CLEAN-VERSION] | Online`);
+
     const commands = [
         { name: 'set-admin-role', description: 'Setup admin role', options: [{ name: 'role', type: 8, description: 'Role', required: true }] },
         { name: 'set-logs', description: 'Setup logs channel', options: [{ name: 'channel', type: 7, description: 'Channel', required: true }] },
@@ -85,8 +85,6 @@ client.once(Events.ClientReady, async () => {
         },
         { name: 'lock', description: 'Full channel lockdown' },
         { name: 'unlock', description: 'Unlock channel interactions' },
-        { name: 'investigate', description: 'Private isolation', options: [{ name: 'user', type: 6, description: 'Target', required: true }] },
-        { name: 'release', description: 'End investigation' },
         { name: 'color', description: 'Color info', options: [{ name: 'input', type: 3, description: 'Hex or Name', required: true }] },
         { name: 'echo', description: 'Bot speak', options: [{ name: 'text', type: 3, description: 'Text', required: true }] },
         { name: 'flip', description: 'Coin flip' },
@@ -170,7 +168,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
     const config = localConfig.get(guild.id);
     const hasAuth = member.permissions.has(PermissionFlagsBits.Administrator) || (config && member.roles.cache.has(config.admin_role_id));
-    
+
     if (!['audit', 'flip', 'color', 'embed'].includes(commandName) && !hasAuth) {
         return quickEmbed('❌ Access Denied', 'Unauthorized.', '#ff0000');
     }
@@ -333,15 +331,6 @@ client.on(Events.InteractionCreate, async interaction => {
                 const cType = options.getString('type') === 'text' ? ChannelType.GuildText : ChannelType.GuildVoice;
                 const newChan = await guild.channels.create({ name: options.getString('name'), type: cType });
                 return quickEmbed('✨ Channel Created', `New: ${newChan}`, '#2ecc71', true);
-
-            case 'investigate':
-                const invTarget = options.getMember('user');
-                await channel.permissionOverwrites.edit(invTarget, { ViewChannel: true, SendMessages: true });
-                return quickEmbed('🕵️ Investigation', `${invTarget} isolated.`, '#9b59b6', true);
-
-            case 'release':
-                await channel.permissionOverwrites.delete(member); 
-                return quickEmbed('🕊️ Released', `Concluded.`, '#2ecc71', true);
 
             case 'color':
                 const cHex = options.getString('input');
