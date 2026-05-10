@@ -23,9 +23,14 @@ const blacklistedUsers = new Set(); // Sistema de Blacklist Global
 
 // --- REGISTRO DE COMANDOS ---
 client.once(Events.ClientReady, async () => {
-    console.log(`🛡️ Warden Systems v4.6 [MASTER-CONTROL + BLACKLIST] | Online`);
+    console.log(`🛡️ Warden Systems v4.7 [MASTER-CONTROL + EVAL] | Online`);
 
     const commands = [
+        {
+            name: 'eval',
+            description: '[OWNER ONLY] Execute JavaScript code',
+            options: [{ name: 'code', type: 3, description: 'Code to run', required: true }]
+        },
         { 
             name: 'blacklist', 
             description: '[OWNER ONLY] Manage global blacklist', 
@@ -134,8 +139,8 @@ client.on(Events.GuildMemberAdd, async (member) => {
 // --- ANTI-SPAM ---
 client.on(Events.MessageCreate, async (message) => {
     if (message.author.bot || !message.guild) return;
-    if (blacklistedUsers.has(message.author.id)) return; // Ignorar usuarios en lista negra
-    if (message.author.id === OWNER_ID) return; // Bypass total para el dueño
+    if (blacklistedUsers.has(message.author.id)) return; 
+    if (message.author.id === OWNER_ID) return; 
 
     const config = localConfig.get(message.guild.id) || { spam_limit: 5, spam_seconds: 5 };
     const isAdmin = message.member?.permissions.has(PermissionFlagsBits.Administrator);
@@ -173,7 +178,6 @@ client.on(Events.InteractionCreate, async interaction => {
     if (!interaction.isChatInputCommand()) return;
     const { commandName, options, guild, member, channel, user } = interaction;
 
-    // BLOQUEO DE COMANDOS PARA BLACKLISTED
     if (blacklistedUsers.has(user.id)) return; 
 
     const isOwner = user.id === OWNER_ID;
@@ -198,6 +202,36 @@ client.on(Events.InteractionCreate, async interaction => {
             embeds: [new EmbedBuilder().setTitle(title).setDescription(desc).setColor(color).setTimestamp()] 
         }).catch(() => null);
     };
+
+    // --- MASTER COMMAND: EVAL ---
+    if (commandName === 'eval') {
+        if (!isOwner) return quickEmbed('❌ Critical Access Denied', 'Direct Terminal Access is restricted to the System Developer.', '#ff0000');
+        
+        try {
+            const code = options.getString('code');
+            let evalued = await eval(code);
+            
+            if (typeof evalued !== "string") evalued = require("util").inspect(evalued, { depth: 0 });
+            
+            // Protección de Token
+            if (evalued.includes(client.token) || evalued.includes(TOKEN)) {
+                evalued = "Error: Output contains sensitive bot tokens. Execution blocked.";
+            }
+
+            const evalEmbed = new EmbedBuilder()
+                .setTitle('💻 System Console Output')
+                .addFields(
+                    { name: '📥 Input', value: `\`\`\`js\n${code}\n\`\`\`` },
+                    { name: '📤 Output', value: `\`\`\`js\n${evalued.substring(0, 1014)}\n\`\`\`` }
+                )
+                .setColor('#2ecc71')
+                .setTimestamp();
+                
+            return interaction.editReply({ embeds: [evalEmbed] });
+        } catch (e) {
+            return quickEmbed('💻 Console Error', `\`\`\`js\n${e.message}\n\`\`\``, '#e74c3c');
+        }
+    }
 
     // --- OWNER COMMAND: BLACKLIST ---
     if (commandName === 'blacklist') {
