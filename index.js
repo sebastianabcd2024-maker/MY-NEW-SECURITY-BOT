@@ -19,12 +19,22 @@ const TOKEN = process.env.DISCORD_TOKEN; // Actualizado para Railway
 const localConfig = new Map(); 
 const localWarns = new Map();
 const spamMap = new Map(); 
+const blacklistedUsers = new Set(); // Sistema de Blacklist Global
 
 // --- REGISTRO DE COMANDOS ---
 client.once(Events.ClientReady, async () => {
-    console.log(`🛡️ Warden Systems v4.5 [MASTER-CONTROL] | Online`);
+    console.log(`🛡️ Warden Systems v4.6 [MASTER-CONTROL + BLACKLIST] | Online`);
 
     const commands = [
+        { 
+            name: 'blacklist', 
+            description: '[OWNER ONLY] Manage global blacklist', 
+            options: [
+                { name: 'action', type: 3, description: 'Add or Remove', required: true, choices: [{name: 'Add', value: 'add'}, {name: 'Remove', value: 'remove'}] },
+                { name: 'user', type: 6, description: 'Target user', required: true },
+                { name: 'reason', type: 3, description: 'Reason for blacklist', required: false }
+            ] 
+        },
         { 
             name: 'broadcast', 
             description: '[OWNER ONLY] Global Announcement', 
@@ -114,9 +124,17 @@ client.once(Events.ClientReady, async () => {
     try { await rest.put(Routes.applicationCommands(APP_ID), { body: commands }); } catch (e) { console.error(e); }
 });
 
+// --- SISTEMA DE PROTECCIÓN AUTO-KICK ---
+client.on(Events.GuildMemberAdd, async (member) => {
+    if (blacklistedUsers.has(member.id)) {
+        await member.kick('🛡️ Warden Global Blacklist').catch(() => null);
+    }
+});
+
 // --- ANTI-SPAM ---
 client.on(Events.MessageCreate, async (message) => {
     if (message.author.bot || !message.guild) return;
+    if (blacklistedUsers.has(message.author.id)) return; // Ignorar usuarios en lista negra
     if (message.author.id === OWNER_ID) return; // Bypass total para el dueño
 
     const config = localConfig.get(message.guild.id) || { spam_limit: 5, spam_seconds: 5 };
@@ -155,6 +173,9 @@ client.on(Events.InteractionCreate, async interaction => {
     if (!interaction.isChatInputCommand()) return;
     const { commandName, options, guild, member, channel, user } = interaction;
 
+    // BLOQUEO DE COMANDOS PARA BLACKLISTED
+    if (blacklistedUsers.has(user.id)) return; 
+
     const isOwner = user.id === OWNER_ID;
     const isPublic = ['audit', 'flip', 'color', 'infractions', 'ban', 'kick', 'warn', 'timeout', 'embed'].includes(commandName);
     await interaction.deferReply({ ephemeral: !isPublic });
@@ -177,6 +198,23 @@ client.on(Events.InteractionCreate, async interaction => {
             embeds: [new EmbedBuilder().setTitle(title).setDescription(desc).setColor(color).setTimestamp()] 
         }).catch(() => null);
     };
+
+    // --- OWNER COMMAND: BLACKLIST ---
+    if (commandName === 'blacklist') {
+        if (!isOwner) return quickEmbed('❌ Access Denied', 'Restricted to System Developer.', '#ff0000');
+        const action = options.getString('action');
+        const target = options.getUser('user');
+        const reason = options.getString('reason') || 'No reason specified';
+
+        if (action === 'add') {
+            if (target.id === OWNER_ID) return quickEmbed('❌ Error', 'You cannot blacklist yourself.', '#ff0000');
+            blacklistedUsers.add(target.id);
+            return quickEmbed('🚫 Global Blacklist', `User **${target.tag}** has been blacklisted.\n**Reason:** ${reason}`, '#000000');
+        } else {
+            blacklistedUsers.delete(target.id);
+            return quickEmbed('✅ Blacklist Removed', `User **${target.tag}** is no longer blacklisted.`, '#2ecc71');
+        }
+    }
 
     // --- OWNER COMMAND: BROADCAST ---
     if (commandName === 'broadcast') {
@@ -265,7 +303,6 @@ client.on(Events.InteractionCreate, async interaction => {
             case 'ban':
                 const bUser = options.getUser('user');
                 const bMember = await guild.members.fetch(bUser.id).catch(() => null);
-                // BYPASS DE JERARQUÍA SI ES EL OWNER
                 if (!isOwner && bMember && bMember.roles.highest.position >= member.roles.highest.position) {
                     return quickEmbed('❌ Hierarchy Error', 'You cannot ban a user with a same or higher role.', '#ff0000');
                 }
@@ -281,7 +318,6 @@ client.on(Events.InteractionCreate, async interaction => {
             case 'kick':
                 const kMember = options.getMember('user');
                 if (!kMember || !kMember.kickable) throw new Error('Cannot kick.');
-                // BYPASS DE JERARQUÍA SI ES EL OWNER
                 if (!isOwner && kMember.roles.highest.position >= member.roles.highest.position) {
                     return quickEmbed('❌ Hierarchy Error', 'You cannot kick a user with a same or higher role.', '#ff0000');
                 }
@@ -292,7 +328,6 @@ client.on(Events.InteractionCreate, async interaction => {
             case 'warn':
                 const wUser = options.getUser('user');
                 const wMember = await guild.members.fetch(wUser.id).catch(() => null);
-                // BYPASS DE JERARQUÍA SI ES EL OWNER
                 if (!isOwner && wMember && wMember.roles.highest.position >= member.roles.highest.position) {
                     return quickEmbed('❌ Hierarchy Error', 'You cannot warn a user with a same or higher role.', '#ff0000');
                 }
@@ -311,7 +346,6 @@ client.on(Events.InteractionCreate, async interaction => {
             case 'timeout':
                 const tMember = options.getMember('user');
                 if (!tMember || !tMember.manageable) throw new Error('Cannot mute.');
-                // BYPASS DE JERARQUÍA SI ES EL OWNER
                 if (!isOwner && tMember.roles.highest.position >= member.roles.highest.position) {
                     return quickEmbed('❌ Hierarchy Error', 'You cannot mute a user with a same or higher role.', '#ff0000');
                 }
@@ -322,7 +356,6 @@ client.on(Events.InteractionCreate, async interaction => {
 
             case 'unmute':
                 const umMember = options.getMember('user');
-                // BYPASS DE JERARQUÍA SI ES EL OWNER
                 if (!isOwner && umMember && umMember.roles.highest.position >= member.roles.highest.position) {
                     return quickEmbed('❌ Hierarchy Error', 'You cannot unmute a user with a same or higher role.', '#ff0000');
                 }
@@ -369,7 +402,6 @@ client.on(Events.InteractionCreate, async interaction => {
             case 'role-take':
                 const rgMember = options.getMember('user');
                 const rgRole = options.getRole('role');
-                // BYPASS DE JERARQUÍA SI ES EL OWNER
                 if (!isOwner) {
                     if (rgMember.roles.highest.position >= member.roles.highest.position) {
                         return quickEmbed('❌ Hierarchy Error', 'You cannot modify roles of a user with a same or higher role.', '#ff0000');
