@@ -20,21 +20,28 @@ const localConfig = new Map();
 const localWarns = new Map();
 const spamMap = new Map(); 
 const blacklistedUsers = new Set(); // Global Blacklist System
-const forbiddenWords = new Map(); // Forbidden words storage per guild
+const forbiddenWords = new Map(); // Forbidden words storage per guild (Stores: {word: string, level: number})
 
 // --- HELPER: ADVANCED NORMALIZATION ---
-// Converts "P.u.t.a", "pútà" or "P_U_T_A" into "puta" for reliable detection
 const normalize = (text) => {
     return text.toLowerCase()
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "") // Remove accents
-        .replace(/[^a-z0-9\s]/g, "")    // Remove special characters except spaces
-        .split(/\s+/);                  // Return array of words
+        .replace(/[^a-z0-9\s]/g, "")    // Remove special characters
+        .split(/\s+/);                  // Array of words
+};
+
+// --- HELPER: ANTI-BYPASS (LEVEL 3) ---
+const bypassCheck = (text) => {
+    return text.toLowerCase()
+        .replace(/0/g, 'o').replace(/1/g, 'i').replace(/3/g, 'e')
+        .replace(/4/g, 'a').replace(/5/g, 's').replace(/7/g, 't')
+        .replace(/8/g, 'b').replace(/v/g, 'u').replace(/\W|_/g, '');
 };
 
 // --- COMMAND REGISTRATION ---
 client.once(Events.ClientReady, async () => {
-    console.log(`🛡️ Warden Systems v4.8 [MASTER-CONTROL + WORD-FILTER] | Online`);
+    console.log(`🛡️ Warden Systems v4.9 [MULTI-LEVEL FILTER] | Online`);
 
     const commands = [
         {
@@ -54,7 +61,14 @@ client.once(Events.ClientReady, async () => {
         {
             name: 'badwords-add',
             description: 'Block a specific word or phrase',
-            options: [{ name: 'word', type: 3, description: 'Word to forbid', required: true }]
+            options: [
+                { name: 'word', type: 3, description: 'Word to forbid', required: true },
+                { name: 'level', type: 4, description: 'Sensitivity Level', required: true, choices: [
+                    { name: 'Level 1: Exact Match', value: 1 },
+                    { name: 'Level 2: Includes/Partial', value: 2 },
+                    { name: 'Level 3: Ultra (Anti-Bypass)', value: 3 }
+                ]}
+            ]
         },
         {
             name: 'badwords-remove',
@@ -171,22 +185,26 @@ client.on(Events.MessageCreate, async (message) => {
 
     if (isAdmin || isImmuneRole || isAdminRole) return;
 
-    // --- ENHANCED WORD FILTER ---
-    const serverWords = forbiddenWords.get(message.guild.id);
-    if (serverWords && serverWords.size > 0) {
-        const messageWords = normalize(message.content); // Array of normalized words
-        
-        const isForbidden = messageWords.some(word => {
-            // Check if any normalized word in the message matches a forbidden word
-            return Array.from(serverWords).some(forbidden => {
-                const cleanForbidden = forbidden.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
-                return word === cleanForbidden || message.content.toLowerCase().includes(cleanForbidden);
-            });
-        });
+    // --- MULTI-LEVEL WORD FILTER ---
+    const serverWordsMap = forbiddenWords.get(message.guild.id);
+    if (serverWordsMap && serverWordsMap.size > 0) {
+        const messageWords = normalize(message.content);
+        const ultraClean = bypassCheck(message.content);
 
-        if (isForbidden) {
+        let detected = false;
+        for (const [forbidden, level] of serverWordsMap) {
+            const cleanForbidden = forbidden.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+
+            if (level === 1 && messageWords.includes(cleanForbidden)) detected = true;
+            if (level === 2 && message.content.toLowerCase().includes(cleanForbidden)) detected = true;
+            if (level === 3 && ultraClean.includes(bypassCheck(cleanForbidden))) detected = true;
+            
+            if (detected) break;
+        }
+
+        if (detected) {
             await message.delete().catch(() => null);
-            return message.channel.send(`⚠️ ${message.author}, that word is not allowed here.`)
+            return message.channel.send(`⚠️ ${message.author}, that word is restricted here.`)
                 .then(m => setTimeout(() => m.delete(), 3000));
         }
     }
@@ -252,24 +270,26 @@ client.on(Events.InteractionCreate, async interaction => {
         const hasAuth = isOwner || member.permissions.has(PermissionFlagsBits.ManageMessages) || (config && member.roles.cache.has(config.admin_role_id));
         if (!hasAuth) return quickEmbed('❌ Access Denied', 'You do not have permission to manage the filter.', '#ff0000');
 
-        let currentWords = forbiddenWords.get(guild.id) || new Set();
+        let currentWordsMap = forbiddenWords.get(guild.id) || new Map();
 
         if (commandName === 'badwords-add') {
-            const word = options.getString('word');
-            currentWords.add(word.toLowerCase());
-            forbiddenWords.set(guild.id, currentWords);
-            return quickEmbed('🚫 Word Blocked', `The word \`${word}\` has been added to the filter.`, '#2ecc71', true);
+            const word = options.getString('word').toLowerCase();
+            const level = options.getInteger('level');
+            currentWordsMap.set(word, level);
+            forbiddenWords.set(guild.id, currentWordsMap);
+            return quickEmbed('🚫 Word Blocked', `The word \`${word}\` added with **Level ${level}**.`, '#2ecc71', true);
         }
         if (commandName === 'badwords-remove') {
             const word = options.getString('word').toLowerCase();
-            if (currentWords.delete(word)) {
-                forbiddenWords.set(guild.id, currentWords);
+            if (currentWordsMap.delete(word)) {
+                forbiddenWords.set(guild.id, currentWordsMap);
                 return quickEmbed('✅ Word Removed', `The word \`${word}\` is no longer blocked.`, '#3498db', true);
             }
             return quickEmbed('❌ Error', 'That word was not in the list.', '#ff0000');
         }
         if (commandName === 'badwords-list') {
-            const list = Array.from(currentWords).join(', ') || 'No blocked words found.';
+            const list = Array.from(currentWordsMap.entries())
+                .map(([w, l]) => `• \`${w}\` (Lvl ${l})`).join('\n') || 'No blocked words found.';
             return quickEmbed('📜 Blocklist', list, '#f1c40f');
         }
     }
