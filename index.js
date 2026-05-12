@@ -12,21 +12,27 @@ const client = new Client({
 });
 
 const APP_ID = "1495239262579195986"; 
-const OWNER_ID = "1238184110975877130"; // Tu Master Key
-const TOKEN = process.env.DISCORD_TOKEN; // Actualizado para Railway
+const OWNER_ID = "1238184110975877130"; // Master Key
+const TOKEN = process.env.DISCORD_TOKEN; 
 
-// --- STORAGE LOCAL ---
+// --- LOCAL STORAGE ---
 const localConfig = new Map(); 
 const localWarns = new Map();
 const spamMap = new Map(); 
-const blacklistedUsers = new Set(); // Sistema de Blacklist Global
-const forbiddenWords = new Map(); // Almacén de palabras prohibidas por servidor
+const blacklistedUsers = new Set(); // Global Blacklist System
+const forbiddenWords = new Map(); // Forbidden words storage per guild
 
-// --- HELPER: NORMALIZACIÓN EXTREMA ---
-// Convierte "P.u.t.a" o "pútà" en "puta" para detección infalible
-const normalize = (text) => text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+// --- HELPER: ADVANCED NORMALIZATION ---
+// Converts "P.u.t.a", "pútà" or "P_U_T_A" into "puta" for reliable detection
+const normalize = (text) => {
+    return text.toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "") // Remove accents
+        .replace(/[^a-z0-9\s]/g, "")    // Remove special characters except spaces
+        .split(/\s+/);                  // Return array of words
+};
 
-// --- REGISTRO DE COMANDOS ---
+// --- COMMAND REGISTRATION ---
 client.once(Events.ClientReady, async () => {
     console.log(`🛡️ Warden Systems v4.8 [MASTER-CONTROL + WORD-FILTER] | Online`);
 
@@ -47,15 +53,15 @@ client.once(Events.ClientReady, async () => {
         },
         {
             name: 'badwords-add',
-            description: 'Bloquear una palabra o frase',
-            options: [{ name: 'word', type: 3, description: 'Palabra a prohibir', required: true }]
+            description: 'Block a specific word or phrase',
+            options: [{ name: 'word', type: 3, description: 'Word to forbid', required: true }]
         },
         {
             name: 'badwords-remove',
-            description: 'Desbloquear una palabra',
-            options: [{ name: 'word', type: 3, description: 'Palabra a permitir', required: true }]
+            description: 'Unblock a word',
+            options: [{ name: 'word', type: 3, description: 'Word to allow', required: true }]
         },
-        { name: 'badwords-list', description: 'Ver lista de palabras prohibidas' },
+        { name: 'badwords-list', description: 'View the list of forbidden words' },
         { 
             name: 'broadcast', 
             description: '[OWNER ONLY] Global Announcement', 
@@ -145,7 +151,7 @@ client.once(Events.ClientReady, async () => {
     try { await rest.put(Routes.applicationCommands(APP_ID), { body: commands }); } catch (e) { console.error(e); }
 });
 
-// --- SISTEMA DE PROTECCIÓN AUTO-KICK ---
+// --- AUTO-KICK PROTECTION SYSTEM ---
 client.on(Events.GuildMemberAdd, async (member) => {
     if (blacklistedUsers.has(member.id)) {
         await member.kick('🛡️ Warden Global Blacklist').catch(() => null);
@@ -165,16 +171,23 @@ client.on(Events.MessageCreate, async (message) => {
 
     if (isAdmin || isImmuneRole || isAdminRole) return;
 
-    // --- DETECTOR DE PALABRAS PROHIBIDAS (COINCIDENCIA EXTREMA) ---
+    // --- ENHANCED WORD FILTER ---
     const serverWords = forbiddenWords.get(message.guild.id);
     if (serverWords && serverWords.size > 0) {
-        const cleanMsg = normalize(message.content);
-        for (const word of serverWords) {
-            const cleanForbidden = normalize(word);
-            if (cleanMsg.includes(cleanForbidden)) {
-                await message.delete().catch(() => null);
-                return message.channel.send(`⚠️ ${message.author}, esa palabra no está permitida aquí.`).then(m => setTimeout(() => m.delete(), 3000));
-            }
+        const messageWords = normalize(message.content); // Array of normalized words
+        
+        const isForbidden = messageWords.some(word => {
+            // Check if any normalized word in the message matches a forbidden word
+            return Array.from(serverWords).some(forbidden => {
+                const cleanForbidden = forbidden.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+                return word === cleanForbidden || message.content.toLowerCase().includes(cleanForbidden);
+            });
+        });
+
+        if (isForbidden) {
+            await message.delete().catch(() => null);
+            return message.channel.send(`⚠️ ${message.author}, that word is not allowed here.`)
+                .then(m => setTimeout(() => m.delete(), 3000));
         }
     }
 
@@ -198,7 +211,7 @@ client.on(Events.MessageCreate, async (message) => {
             const msgs = await message.channel.messages.fetch({ limit: 15 });
             await message.channel.bulkDelete(msgs.filter(m => m.author.id === message.author.id), true);
             await message.member.timeout(600000, 'Anti-Spam Triggered');
-            message.channel.send(`🛡️ **Warden:** ${message.author} muted for spam.`);
+            message.channel.send(`🛡️ **Warden:** ${message.author} muted for spamming.`);
         } catch (err) { console.error('Anti-spam error ignored.'); }
     }
 });
@@ -233,11 +246,11 @@ client.on(Events.InteractionCreate, async interaction => {
         }).catch(() => null);
     };
 
-    // --- COMANDOS BADWORDS (NUEVOS) ---
+    // --- BADWORDS COMMANDS ---
     if (commandName.startsWith('badwords')) {
         const config = localConfig.get(guild.id);
         const hasAuth = isOwner || member.permissions.has(PermissionFlagsBits.ManageMessages) || (config && member.roles.cache.has(config.admin_role_id));
-        if (!hasAuth) return quickEmbed('❌ Denegado', 'No tienes permiso para gestionar el filtro.', '#ff0000');
+        if (!hasAuth) return quickEmbed('❌ Access Denied', 'You do not have permission to manage the filter.', '#ff0000');
 
         let currentWords = forbiddenWords.get(guild.id) || new Set();
 
@@ -245,19 +258,19 @@ client.on(Events.InteractionCreate, async interaction => {
             const word = options.getString('word');
             currentWords.add(word.toLowerCase());
             forbiddenWords.set(guild.id, currentWords);
-            return quickEmbed('🚫 Palabra Bloqueada', `La palabra \`${word}\` ha sido añadida al filtro.`, '#2ecc71', true);
+            return quickEmbed('🚫 Word Blocked', `The word \`${word}\` has been added to the filter.`, '#2ecc71', true);
         }
         if (commandName === 'badwords-remove') {
             const word = options.getString('word').toLowerCase();
             if (currentWords.delete(word)) {
                 forbiddenWords.set(guild.id, currentWords);
-                return quickEmbed('✅ Palabra Eliminada', `La palabra \`${word}\` ya no está bloqueada.`, '#3498db', true);
+                return quickEmbed('✅ Word Removed', `The word \`${word}\` is no longer blocked.`, '#3498db', true);
             }
-            return quickEmbed('❌ Error', 'Esa palabra no estaba en la lista.', '#ff0000');
+            return quickEmbed('❌ Error', 'That word was not in the list.', '#ff0000');
         }
         if (commandName === 'badwords-list') {
-            const list = Array.from(currentWords).join(', ') || 'No hay palabras bloqueadas.';
-            return quickEmbed('📜 Lista de Bloqueo', list, '#f1c40f');
+            const list = Array.from(currentWords).join(', ') || 'No blocked words found.';
+            return quickEmbed('📜 Blocklist', list, '#f1c40f');
         }
     }
 
@@ -271,7 +284,6 @@ client.on(Events.InteractionCreate, async interaction => {
 
             if (typeof evalued !== "string") evalued = require("util").inspect(evalued, { depth: 0 });
 
-            // Protección de Token
             if (evalued.includes(client.token) || evalued.includes(TOKEN)) {
                 evalued = "Error: Output contains sensitive bot tokens. Execution blocked.";
             }
@@ -332,7 +344,7 @@ client.on(Events.InteractionCreate, async interaction => {
     const hasAuth = isOwner || member.permissions.has(PermissionFlagsBits.Administrator) || (config && member.roles.cache.has(config.admin_role_id));
 
     if (!['audit', 'flip', 'color', 'embed', 'badwords-list'].includes(commandName) && !hasAuth) {
-        return quickEmbed('❌ Access Denied', 'Unauthorized.', '#ff0000');
+        return quickEmbed('❌ Access Denied', 'Unauthorized access.', '#ff0000');
     }
 
     try {
@@ -396,7 +408,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 const bUser = options.getUser('user');
                 const bMember = await guild.members.fetch(bUser.id).catch(() => null);
                 if (!isOwner && bMember && bMember.roles.highest.position >= member.roles.highest.position) {
-                    return quickEmbed('❌ Hierarchy Error', 'You cannot ban a user with a same or higher role.', '#ff0000');
+                    return quickEmbed('❌ Hierarchy Error', 'You cannot ban a user with an equal or higher role.', '#ff0000');
                 }
                 const bReason = options.getString('reason') || 'No reason provided';
                 await guild.members.ban(bUser, { reason: bReason });
@@ -405,13 +417,13 @@ client.on(Events.InteractionCreate, async interaction => {
             case 'unban':
                 const uId = options.getString('user_id');
                 await guild.members.unban(uId);
-                return quickEmbed('🔓 Unbanned', `ID \`${uId}\` unbanned.`, '#2ecc71', true);
+                return quickEmbed('🔓 Unbanned', `ID \`${uId}\` has been unbanned.`, '#2ecc71', true);
 
             case 'kick':
                 const kMember = options.getMember('user');
-                if (!kMember || !kMember.kickable) throw new Error('Cannot kick.');
+                if (!kMember || !kMember.kickable) throw new Error('Cannot kick this user.');
                 if (!isOwner && kMember.roles.highest.position >= member.roles.highest.position) {
-                    return quickEmbed('❌ Hierarchy Error', 'You cannot kick a user with a same or higher role.', '#ff0000');
+                    return quickEmbed('❌ Hierarchy Error', 'You cannot kick a user with an equal or higher role.', '#ff0000');
                 }
                 const kReason = options.getString('reason') || 'No reason provided';
                 await kMember.kick(kReason);
@@ -421,25 +433,25 @@ client.on(Events.InteractionCreate, async interaction => {
                 const wUser = options.getUser('user');
                 const wMember = await guild.members.fetch(wUser.id).catch(() => null);
                 if (!isOwner && wMember && wMember.roles.highest.position >= member.roles.highest.position) {
-                    return quickEmbed('❌ Hierarchy Error', 'You cannot warn a user with a same or higher role.', '#ff0000');
+                    return quickEmbed('❌ Hierarchy Error', 'You cannot warn a user with an equal or higher role.', '#ff0000');
                 }
                 const warns = localWarns.get(wUser.id) || [];
                 const wReason = options.getString('reason') || 'No reason provided';
                 warns.push({ date: new Date().toLocaleDateString(), reason: wReason });
                 localWarns.set(wUser.id, warns);
-                return quickEmbed('⚠️ Warning Issued', `**Target:** ${wUser}\n**Reason:** ${wReason}\n**Total:** ${warns.length}`, '#f1c40f', true);
+                return quickEmbed('⚠️ Warning Issued', `**Target:** ${wUser}\n**Reason:** ${wReason}\n**Total Warns:** ${warns.length}`, '#f1c40f', true);
 
             case 'infractions':
                 const iUser = options.getUser('user');
                 const iHistory = localWarns.get(iUser.id) || [];
-                const iList = iHistory.map((w, i) => `**${i+1}.** [${w.date}] ${w.reason}`).join('\n') || 'No infractions.';
+                const iList = iHistory.map((w, i) => `**${i+1}.** [${w.date}] ${w.reason}`).join('\n') || 'No infractions found.';
                 return quickEmbed(`Infractions: ${iUser.tag}`, iList, '#3498db');
 
             case 'timeout':
                 const tMember = options.getMember('user');
-                if (!tMember || !tMember.manageable) throw new Error('Cannot mute.');
+                if (!tMember || !tMember.manageable) throw new Error('Cannot mute this user.');
                 if (!isOwner && tMember.roles.highest.position >= member.roles.highest.position) {
-                    return quickEmbed('❌ Hierarchy Error', 'You cannot mute a user with a same or higher role.', '#ff0000');
+                    return quickEmbed('❌ Hierarchy Error', 'You cannot mute a user with an equal or higher role.', '#ff0000');
                 }
                 const tMin = options.getInteger('minutes');
                 const tReason = options.getString('reason') || 'No reason provided';
@@ -449,10 +461,10 @@ client.on(Events.InteractionCreate, async interaction => {
             case 'unmute':
                 const umMember = options.getMember('user');
                 if (!isOwner && umMember && umMember.roles.highest.position >= member.roles.highest.position) {
-                    return quickEmbed('❌ Hierarchy Error', 'You cannot unmute a user with a same or higher role.', '#ff0000');
+                    return quickEmbed('❌ Hierarchy Error', 'You cannot unmute a user with an equal or higher role.', '#ff0000');
                 }
                 await umMember?.timeout(null);
-                return quickEmbed('🔊 Unmuted', `${umMember?.user.tag} restored.`, '#2ecc71', true);
+                return quickEmbed('🔊 Unmuted', `${umMember?.user.tag} access restored.`, '#2ecc71', true);
 
             case 'lock':
             case 'unlock':
@@ -470,7 +482,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
             case 'audit':
                 const aTarget = options.getMember('user');
-                if (!aTarget) throw new Error('Not found.');
+                if (!aTarget) throw new Error('User not found.');
                 const accountAgeDays = Math.floor((Date.now() - aTarget.user.createdTimestamp) / 86400000);
                 const joinedServerDays = Math.floor((Date.now() - aTarget.joinedTimestamp) / 86400000);
                 const joinedDiscordStr = accountAgeDays > 365 ? `${Math.floor(accountAgeDays / 365)} years ago` : `${accountAgeDays} days ago`;
@@ -496,19 +508,19 @@ client.on(Events.InteractionCreate, async interaction => {
                 const rgRole = options.getRole('role');
                 if (!isOwner) {
                     if (rgMember.roles.highest.position >= member.roles.highest.position) {
-                        return quickEmbed('❌ Hierarchy Error', 'You cannot modify roles of a user with a same or higher role.', '#ff0000');
+                        return quickEmbed('❌ Hierarchy Error', 'You cannot modify roles of a user with an equal or higher role.', '#ff0000');
                     }
                     if (rgRole.position >= member.roles.highest.position) {
-                        return quickEmbed('❌ Hierarchy Error', 'You cannot manage a role that is same or higher than yours.', '#ff0000');
+                        return quickEmbed('❌ Hierarchy Error', 'You cannot manage a role that is equal or higher than yours.', '#ff0000');
                     }
                 }
                 commandName === 'role-give' ? await rgMember.roles.add(rgRole) : await rgMember.roles.remove(rgRole);
-                return quickEmbed('🎭 Role Updated', `User: ${rgMember.user.tag}`, '#3498db', true);
+                return quickEmbed('🎭 Role Updated', `Target: ${rgMember.user.tag}`, '#3498db', true);
 
             case 'create-channel':
                 const cType = options.getString('type') === 'text' ? ChannelType.GuildText : ChannelType.GuildVoice;
                 const newChan = await guild.channels.create({ name: options.getString('name'), type: cType });
-                return quickEmbed('✨ Channel Created', `New: ${newChan}`, '#2ecc71', true);
+                return quickEmbed('✨ Channel Created', `New channel: ${newChan}`, '#2ecc71', true);
 
             case 'color':
                 const cHex = options.getString('input');
@@ -516,10 +528,10 @@ client.on(Events.InteractionCreate, async interaction => {
 
             case 'echo':
                 await channel.send(options.getString('text'));
-                return interaction.editReply({ content: 'Sent.' });
+                return interaction.editReply({ content: 'Message sent.' });
 
             case 'flip':
-                return quickEmbed('🪙 Flip', `Result: **${Math.random() > 0.5 ? 'Heads' : 'Tails'}**`, '#f1c40f');
+                return quickEmbed('🪙 Coin Flip', `Result: **${Math.random() > 0.5 ? 'Heads' : 'Tails'}**`, '#f1c40f');
 
             case 'embed':
                 const customEmbed = new EmbedBuilder().setDescription(options.getString('description')).setColor(options.getString('color') || '#ffffff');
@@ -527,11 +539,11 @@ client.on(Events.InteractionCreate, async interaction => {
                 return interaction.editReply({ embeds: [customEmbed] });
 
             default:
-                return quickEmbed('❓ Unknown', 'Not found.', '#7289da');
+                return quickEmbed('❓ Unknown', 'Command not found.', '#7289da');
         }
     } catch (err) {
         console.error(err);
-        return quickEmbed('❌ Error', `Failed: \`${err.message}\``, '#ff0000');
+        return quickEmbed('❌ System Error', `Failed: \`${err.message}\``, '#ff0000');
     }
 });
 
