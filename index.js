@@ -44,7 +44,8 @@ const sendAutoModLog = (guild, user, action, reason, content, color = '#ff9900')
     const logChannel = guild.channels.cache.get(conf.log_channel);
     if (logChannel) {
         const logEmbed = new EmbedBuilder()
-            .setDescription(`**Acción:** ${action}\n**Usuario:** ${user.tag} (${user.id})\n**Razón:** ${reason}\n**Contenido:** \`\`\`${content.substring(0, 500) || "N/A"}\`\`\``)
+            .setTitle(`Auto-Mod | ${action}`)
+            .setDescription(`**Usuario:** ${user.tag} (${user.id})\n**Razón:** ${reason}\n**Contenido:** \`\`\`${content.substring(0, 500) || "N/A"}\`\`\``)
             .setColor(color)
             .setTimestamp();
         logChannel.send({ embeds: [logEmbed] }).catch(() => null);
@@ -242,7 +243,7 @@ client.on(Events.MessageCreate, async (message) => {
         if (linkRegExp.test(message.content)) {
             const whitelist = linkWhitelist.get(message.guild.id) || new Set();
             const foundLinks = message.content.match(linkRegExp);
-            
+
             let shouldDelete = false;
             for (const link of foundLinks) {
                 try {
@@ -495,7 +496,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 let pToDelete = pTarget ? pFetched.filter(m => m.author.id === pTarget.id) : pFetched;
                 if (pToDelete.size === 0) throw new Error('No messages found to delete.');
                 const pDeleted = await channel.bulkDelete(pToDelete, true);
-                return quickEmbed(`<:check_icon1:1504601887247171605> Deleted **${pDeleted.size}** messages${pTarget ? ` from ${pTarget.tag}` : ''}.`, '#95a5a6', true);
+                return quickEmbed(`<:check_icon1:1504601887247171605> Deleted **${pDeleted.size}** messages${pTarget ? ` from **${pTarget.tag}**` : ' from the channel'}.`, '#95a5a6', true);
 
             case 'purge-after':
                 const msgId = options.getString('message_id');
@@ -509,7 +510,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 const saSeconds = options.getInteger('seconds');
                 const saImmune = options.getRole('immune_role');
                 localConfig.set(guild.id, { ...localConfig.get(guild.id), spam_limit: saLimit, spam_seconds: saSeconds, immune_role_id: saImmune?.id || null });
-                return quickEmbed(`**Limit:** ${saLimit} msgs\n**Window:** ${saSeconds}s\n**Immune:** ${saImmune || 'None'}`, '#2ecc71', true);
+                return quickEmbed(`**Limit:** ${saLimit} msgs\n**Window:** ${saSeconds}s\n**Immune Role:** ${saImmune || 'None'}`, '#2ecc71', true);
 
             case 'create-role':
                 const rName = options.getString('name');
@@ -525,7 +526,7 @@ client.on(Events.InteractionCreate, async interaction => {
                     default: perms = [PermissionFlagsBits.ViewChannel]; break;
                 }
                 const newRole = await guild.roles.create({ name: rName, color: rColor.startsWith('#') ? rColor : '#95a5a6', permissions: perms, hoist: hoist });
-                return quickEmbed(`**Name:** ${newRole}\n**Level:** ${rLevel || 'Decoration'}`, newRole.hexColor, true);
+                return quickEmbed(`<:check_icon1:1504601887247171605> Role **${newRole.name}** created.\n**Tier:** ${rLevel || 'Decoration'}\n**Color:** ${newRole.hexColor}`, newRole.hexColor, true);
 
             case 'set-admin-role':
                 const role = options.getRole('role');
@@ -545,13 +546,13 @@ client.on(Events.InteractionCreate, async interaction => {
                 }
                 const bReason = options.getString('reason') || 'No reason provided';
                 await guild.members.ban(bUser, { reason: bReason });
-                return quickEmbed(`<:bankick_icon1:1504606705596498032> Banned **${bUser.tag}**.\n**Reason:** ${bReason}`, '#ff0000', true);
+                return quickEmbed(`<:bankick_icon1:1504606705596498032> **${bUser.tag}** has been banned.\n**Reason:** ${bReason}`, '#ff0000', true);
 
             case 'unban':
                 const uId = options.getString('user_id');
                 const uReason = options.getString('reason') || 'No reason provided';
                 await guild.members.unban(uId, uReason);
-                return quickEmbed(`<:check_icon1:1504601887247171605> ID \`${uId}\` has been unbanned.\n**Reason:** ${uReason}`, '#2ecc71', true);
+                return quickEmbed(`<:check_icon1:1504601887247171605> User with ID \`${uId}\` has been unbanned.\n**Reason:** ${uReason}`, '#2ecc71', true);
 
             case 'kick':
                 const kMember = options.getMember('user');
@@ -561,7 +562,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 }
                 const kReason = options.getString('reason') || 'No reason provided';
                 await kMember.kick(kReason);
-                return quickEmbed(`<:bankick_icon1:1504606705596498032> **${kMember.user.tag}** kicked.\n**Reason:** ${kReason}`, '#e67e22', true);
+                return quickEmbed(`<:bankick_icon1:1504606705596498032> **${kMember.user.tag}** has been kicked from the server.\n**Reason:** ${kReason}`, '#e67e22', true);
 
             case 'warn':
                 const wUser = options.getUser('user');
@@ -573,13 +574,13 @@ client.on(Events.InteractionCreate, async interaction => {
                 const wReason = options.getString('reason') || 'No reason provided';
                 warns.push({ date: new Date().toLocaleDateString(), reason: wReason });
                 localWarns.set(wUser.id, warns);
-                return quickEmbed(`<:warn_icon1:1504605302878769272> ${wUser} warned.\n**Reason:** ${wReason}\n**Total Warns:** ${warns.length}`, '#f1c40f', true);
+                return quickEmbed(`<:warn_icon1:1504605302878769272> **${wUser.tag}** has been warned.\n**Reason:** ${wReason}\n**Total Warnings:** ${warns.length}`, '#f1c40f', true);
 
             case 'infractions':
                 const iUser = options.getUser('user');
                 const iHistory = localWarns.get(iUser.id) || [];
                 const iList = iHistory.map((w, i) => `**${i+1}.** [${w.date}] ${w.reason}`).join('\n') || 'No infractions found.';
-                return quickEmbed(iList, '#3498db');
+                return quickEmbed(`**Infraction history for ${iUser.tag}:**\n\n${iList}`, '#3498db');
 
             case 'timeout':
                 const tMember = options.getMember('user');
@@ -590,7 +591,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 const tMin = options.getInteger('minutes');
                 const tReason = options.getString('reason') || 'No reason provided';
                 await tMember.timeout(tMin * 60000, tReason);
-                return quickEmbed(`<:timeout_icon1:1504605891087958147> ${tMember.user.tag} muted for ${tMin}m.\n**Reason:** ${tReason}`, '#e67e22', true);
+                return quickEmbed(`<:timeout_icon1:1504605891087958147> **${tMember.user.tag}** has been muted for **${tMin} minute(s)**.\n**Reason:** ${tReason}`, '#e67e22', true);
 
             case 'unmute':
                 const umMember = options.getMember('user');
@@ -599,7 +600,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 }
                 const umReason = options.getString('reason') || 'No reason provided';
                 await umMember?.timeout(null, umReason);
-                return quickEmbed(`<:check_icon1:1504601887247171605> ${umMember?.user.tag} access restored.\n**Reason:** ${umReason}`, '#2ecc71', true);
+                return quickEmbed(`<:check_icon1:1504601887247171605> **${umMember?.user.tag}** has been unmuted and access restored.\n**Reason:** ${umReason}`, '#2ecc71', true);
 
             case 'lock':
             case 'unlock':
@@ -616,8 +617,8 @@ client.on(Events.InteractionCreate, async interaction => {
                 });
                 return quickEmbed(
                     isLock
-                        ? `<:bankick_icon1:1504606705596498032> Channel locked (Read-only).\n**Reason:** ${lockReason}`
-                        : `<:check_icon1:1504601887247171605> Channel unlocked.\n**Reason:** ${lockReason}`,
+                        ? `<:bankick_icon1:1504606705596498032> **${channel.name}** has been locked (Read-only).\n**Reason:** ${lockReason}`
+                        : `<:check_icon1:1504601887247171605> **${channel.name}** has been unlocked, interactions restored.\n**Reason:** ${lockReason}`,
                     isLock ? '#ff0000' : '#2ecc71', true
                 );
 
@@ -655,13 +656,19 @@ client.on(Events.InteractionCreate, async interaction => {
                         return quickEmbed('<:error_icon1:1504603932058714123> You cannot manage a role that is equal or higher than yours.', '#ff0000');
                     }
                 }
-                commandName === 'role-give' ? await rgMember.roles.add(rgRole) : await rgMember.roles.remove(rgRole);
-                return quickEmbed(`<:check_icon1:1504601887247171605> Target: ${rgMember.user.tag}`, '#3498db', true);
+                if (commandName === 'role-give') {
+                    await rgMember.roles.add(rgRole);
+                    return quickEmbed(`<:check_icon1:1504601887247171605> Role **${rgRole.name}** given to **${rgMember.user.tag}**.`, '#3498db', true);
+                } else {
+                    await rgMember.roles.remove(rgRole);
+                    return quickEmbed(`<:check_icon1:1504601887247171605> Role **${rgRole.name}** removed from **${rgMember.user.tag}**.`, '#3498db', true);
+                }
 
             case 'create-channel':
                 const cType = options.getString('type') === 'text' ? ChannelType.GuildText : ChannelType.GuildVoice;
+                const cTypeName = options.getString('type') === 'text' ? 'text' : 'voice';
                 const newChan = await guild.channels.create({ name: options.getString('name'), type: cType });
-                return quickEmbed(`<:check_icon1:1504601887247171605> New channel: ${newChan}`, '#2ecc71', true);
+                return quickEmbed(`<:check_icon1:1504601887247171605> New **${cTypeName}** channel created: ${newChan}`, '#2ecc71', true);
 
             case 'color':
                 const cHex = options.getString('input');
