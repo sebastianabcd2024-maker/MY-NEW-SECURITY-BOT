@@ -1,3 +1,5 @@
+Los comandos no responden supongo que quitaste algunas respuestas no?
+
 const { 
     Client, GatewayIntentBits, Events, EmbedBuilder, PermissionFlagsBits, REST, Routes, ChannelType 
 } = require('discord.js');
@@ -14,15 +16,6 @@ const client = new Client({
 const APP_ID = "1495239262579195986"; 
 const OWNER_ID = "1238184110975877130"; // Master Key
 const TOKEN = process.env.DISCORD_TOKEN; 
-
-// --- NUEVOS ICONOS PERSONALIZADOS ---
-const ICONS = {
-    check: "<:check_icon1:1504601887247171605>",
-    error: "<:error_icon1:1504603932058714123>",
-    warn: "<:warn_icon1:1504605302878769272>",
-    timeout: "<:timeout_icon1:1504605891087958147>",
-    bankick: "<:bankick_icon1:1504606705596498032>"
-};
 
 // --- LOCAL STORAGE ---
 const localConfig = new Map(); 
@@ -50,7 +43,7 @@ const bypassCheck = (text) => {
         .replace(/8/g, 'b').replace(/v/g, 'u').replace(/\W|_/g, '');
 };
 
-// --- HELPER: AUTO-MOD LOGGING (Mantenido intacto) ---
+// --- HELPER: AUTO-MOD LOGGING ---
 const sendAutoModLog = (guild, user, action, reason, content, color = '#ff9900') => {
     const conf = localConfig.get(guild.id);
     if (!conf || !conf.log_channel) return;
@@ -69,9 +62,9 @@ const sendAutoModLog = (guild, user, action, reason, content, color = '#ff9900')
     }
 };
 
-// --- COMMAND REGISTRATION (Mantenido v5.5) ---
+// --- COMMAND REGISTRATION ---
 client.once(Events.ClientReady, async () => {
-    console.log(`🛡️ Warden Systems v5.5 [FULL LOGIC + ICON UI] | Online`);
+    console.log(`🛡️ Warden Systems v5.5 [AUTO-LOGGING ENABLED] | Online`);
 
     const commands = [
         {
@@ -250,7 +243,7 @@ client.on(Events.MessageCreate, async (message) => {
                 await message.delete().catch(() => null);
                 await message.member.timeout(300000, 'Anti-Flood: Repetitive messages');
                 sendAutoModLog(message.guild, message.author, 'Anti-Flood', 'Sent too many identical messages.', message.content);
-                return message.channel.send(`${ICONS.error} ${message.author}, stop flooding with the same message.`);
+                return message.channel.send(`🚫 ${message.author}, stop flooding with the same message.`);
             }
         } else {
             userFlood.lastContent = message.content;
@@ -284,7 +277,7 @@ client.on(Events.MessageCreate, async (message) => {
             if (shouldDelete) {
                 await message.delete().catch(() => null);
                 sendAutoModLog(message.guild, message.author, 'Anti-Link', 'Unauthorized link posted.', message.content);
-                return message.channel.send(`${ICONS.error} ${message.author}, links are not allowed here.`)
+                return message.channel.send(`🚫 ${message.author}, links are not allowed here.`)
                     .then(m => setTimeout(() => m.delete(), 3000));
             }
         }
@@ -314,7 +307,7 @@ client.on(Events.MessageCreate, async (message) => {
         if (detected) {
             await message.delete().catch(() => null);
             sendAutoModLog(message.guild, message.author, 'Word Filter', `Used restricted word: ${detectedWord}`, message.content, '#ff4444');
-            return message.channel.send(`${ICONS.warn} ${message.author}, that word is restricted here.`)
+            return message.channel.send(`⚠️ ${message.author}, that word is restricted here.`)
                 .then(m => setTimeout(() => m.delete(), 3000));
         }
     }
@@ -338,7 +331,7 @@ client.on(Events.MessageCreate, async (message) => {
                 await message.channel.bulkDelete(msgs.filter(m => m.author.id === message.author.id), true);
                 await message.member.timeout(600000, 'Anti-Spam Triggered');
                 sendAutoModLog(message.guild, message.author, 'Anti-Spam', `Sent more than ${limit} messages in ${config.spam_seconds}s.`, 'Bulk messages deleted.');
-                message.channel.send(`${ICONS.timeout} **Warden:** ${message.author} muted for spamming.`);
+                message.channel.send(`🛡️ **Warden:** ${message.author} muted for spamming.`);
             } catch (err) { console.error('Anti-spam error ignored.'); }
         }
     }
@@ -367,11 +360,10 @@ client.on(Events.InteractionCreate, async interaction => {
         }
     };
 
-    // --- REEMPLAZO QUICKEMBED (SIN TITULO) ---
-    const quickEmbed = (desc, color = '#ffffff', logIt = false, logTitle = "Action") => {
-        if (logIt) sendGlobalLog(logTitle, desc, color);
+    const quickEmbed = (title, desc, color = '#ffffff', logIt = false) => {
+        if (logIt) sendGlobalLog(title, desc, color);
         return interaction.editReply({ 
-            embeds: [new EmbedBuilder().setDescription(desc).setColor(color).setTimestamp()] 
+            embeds: [new EmbedBuilder().setTitle(title).setDescription(desc).setColor(color).setTimestamp()] 
         }).catch(() => null);
     };
 
@@ -379,7 +371,7 @@ client.on(Events.InteractionCreate, async interaction => {
     if (commandName.startsWith('badwords')) {
         const config = localConfig.get(guild.id);
         const hasAuth = isOwner || member.permissions.has(PermissionFlagsBits.ManageMessages) || (config && member.roles.cache.has(config.admin_role_id));
-        if (!hasAuth) return quickEmbed(`${ICONS.error} You do not have permission to manage the filter.`, '#ff0000');
+        if (!hasAuth) return quickEmbed('❌ Access Denied', 'You do not have permission to manage the filter.', '#ff0000');
 
         let currentWordsMap = forbiddenWords.get(guild.id) || new Map();
 
@@ -388,20 +380,20 @@ client.on(Events.InteractionCreate, async interaction => {
             const level = options.getInteger('level');
             currentWordsMap.set(word, level);
             forbiddenWords.set(guild.id, currentWordsMap);
-            return quickEmbed(`${ICONS.bankick} Word \`${word}\` added with **Level ${level}**.`, '#2ecc71', true, 'Word Blocked');
+            return quickEmbed('🚫 Word Blocked', `The word \`${word}\` added with **Level ${level}**.`, '#2ecc71', true);
         }
         if (commandName === 'badwords-remove') {
             const word = options.getString('word').toLowerCase();
             if (currentWordsMap.delete(word)) {
                 forbiddenWords.set(guild.id, currentWordsMap);
-                return quickEmbed(`${ICONS.check} Word \`${word}\` is no longer blocked.`, '#3498db', true, 'Word Removed');
+                return quickEmbed('✅ Word Removed', `The word \`${word}\` is no longer blocked.`, '#3498db', true);
             }
-            return quickEmbed(`${ICONS.error} That word was not in the list.`, '#ff0000');
+            return quickEmbed('❌ Error', 'That word was not in the list.', '#ff0000');
         }
         if (commandName === 'badwords-list') {
             const list = Array.from(currentWordsMap.entries())
                 .map(([w, l]) => `• \`${w}\` (Lvl ${l})`).join('\n') || 'No blocked words found.';
-            return quickEmbed(`📜 **Blocklist:**\n${list}`, '#f1c40f');
+            return quickEmbed('📜 Blocklist', list, '#f1c40f');
         }
     }
 
@@ -409,19 +401,19 @@ client.on(Events.InteractionCreate, async interaction => {
     if (commandName.startsWith('link-whitelist') || commandName === 'setup-antilinks' || commandName === 'setup-antiflood') {
         const config = localConfig.get(guild.id);
         const hasAuth = isOwner || member.permissions.has(PermissionFlagsBits.ManageGuild) || (config && member.roles.cache.has(config.admin_role_id));
-        if (commandName !== 'link-whitelist-list' && !hasAuth) return quickEmbed(`${ICONS.error} Requires Manage Server permissions.`, '#ff0000');
+        if (commandName !== 'link-whitelist-list' && !hasAuth) return quickEmbed('❌ Access Denied', 'Requires Manage Server permissions.', '#ff0000');
 
         if (commandName === 'setup-antiflood') {
             const isEnabled = options.getBoolean('enabled');
             const maxDup = options.getInteger('max_duplicates');
             localConfig.set(guild.id, { ...localConfig.get(guild.id), flood_enabled: isEnabled, flood_max: maxDup });
-            return quickEmbed(`${ICONS.check} **Anti-Flood Configured**\n**Status:** ${isEnabled ? 'Enabled' : 'Disabled'}\n**Limit:** ${maxDup} repeated messages.`, isEnabled ? '#2ecc71' : '#e74c3c', true, 'Anti-Flood Config');
+            return quickEmbed('🛡️ Anti-Flood Configured', `**Status:** ${isEnabled ? 'Enabled' : 'Disabled'}\n**Limit:** ${maxDup} repeated messages.`, isEnabled ? '#2ecc71' : '#e74c3c', true);
         }
 
         if (commandName === 'setup-antilinks') {
             const isEnabled = options.getBoolean('enabled');
             localConfig.set(guild.id, { ...localConfig.get(guild.id), antilinks_enabled: isEnabled });
-            return quickEmbed(isEnabled ? `${ICONS.check} Anti-Links Enabled` : `🔓 Anti-Links Disabled`, `The system will ${isEnabled ? 'now' : 'no longer'} filter external links.`, isEnabled ? '#2ecc71' : '#e74c3c', true, 'Anti-Link Config');
+            return quickEmbed(isEnabled ? '🛡️ Anti-Links Enabled' : '🔓 Anti-Links Disabled', `The system will ${isEnabled ? 'now' : 'no longer'} filter external links.`, isEnabled ? '#2ecc71' : '#e74c3c', true);
         }
 
         let currentWhitelist = linkWhitelist.get(guild.id) || new Set();
@@ -430,25 +422,25 @@ client.on(Events.InteractionCreate, async interaction => {
             const domain = options.getString('domain').toLowerCase().replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0];
             currentWhitelist.add(domain);
             linkWhitelist.set(guild.id, currentWhitelist);
-            return quickEmbed(`${ICONS.check} Domain \`${domain}\` is now allowed.`, '#2ecc71', true, 'Domain Whitelisted');
+            return quickEmbed('🔗 Domain Whitelisted', `Domain \`${domain}\` is now allowed.`, '#2ecc71', true);
         }
         if (commandName === 'link-whitelist-remove') {
             const domain = options.getString('domain').toLowerCase();
             if (currentWhitelist.delete(domain)) {
                 linkWhitelist.set(guild.id, currentWhitelist);
-                return quickEmbed(`${ICONS.bankick} Domain \`${domain}\` removed from whitelist.`, '#e74c3c', true, 'Domain Removed');
+                return quickEmbed('🗑️ Domain Removed', `Domain \`${domain}\` removed from whitelist.`, '#e74c3c', true);
             }
-            return quickEmbed(`${ICONS.error} Domain not found in whitelist.`, '#ff0000');
+            return quickEmbed('❌ Error', 'Domain not found in whitelist.', '#ff0000');
         }
         if (commandName === 'link-whitelist-list') {
             const list = Array.from(currentWhitelist).map(d => `• \`${d}\``).join('\n') || 'No domains whitelisted.';
-            return quickEmbed(`📜 **Whitelisted Domains:**\n${list}`, '#3498db');
+            return quickEmbed('📜 Whitelisted Domains', list, '#3498db');
         }
     }
 
     // --- EVAL & OWNER COMMANDS ---
     if (commandName === 'eval') {
-        if (!isOwner) return quickEmbed(`${ICONS.error} Direct Terminal Access restricted.`, '#ff0000');
+        if (!isOwner) return quickEmbed('❌ Critical Access Denied', 'Direct Terminal Access restricted.', '#ff0000');
         try {
             const code = options.getString('code');
             let evalued = await eval(code);
@@ -456,20 +448,20 @@ client.on(Events.InteractionCreate, async interaction => {
             if (evalued.includes(TOKEN)) evalued = "Error: Sensitive data blocked.";
             const evalEmbed = new EmbedBuilder().setTitle('💻 Console').addFields({ name: '📥 Input', value: `\`\`\`js\n${code}\n\`\`\`` }, { name: '📤 Output', value: `\`\`\`js\n${evalued.substring(0, 1014)}\n\`\`\`` }).setColor('#2ecc71');
             return interaction.editReply({ embeds: [evalEmbed] });
-        } catch (e) { return quickEmbed(`${ICONS.error} \`\`\`js\n${e.message}\n\`\`\``, '#e74c3c'); }
+        } catch (e) { return quickEmbed('💻 Error', `\`\`\`js\n${e.message}\n\`\`\``, '#e74c3c'); }
     }
 
     if (commandName === 'blacklist') {
-        if (!isOwner) return quickEmbed(`${ICONS.error} Restricted to System Developer.`, '#ff0000');
+        if (!isOwner) return quickEmbed('❌ Access Denied', 'Restricted to System Developer.', '#ff0000');
         const action = options.getString('action');
         const target = options.getUser('user');
         const reason = options.getString('reason') || 'No reason specified';
         if (action === 'add') {
             blacklistedUsers.add(target.id);
-            return quickEmbed(`${ICONS.bankick} **Global Blacklist**\n**${target.tag}** blacklisted.\n**Reason:** ${reason}`, '#000000');
+            return quickEmbed('🚫 Global Blacklist', `**${target.tag}** blacklisted.\n**Reason:** ${reason}`, '#000000');
         } else {
             blacklistedUsers.delete(target.id);
-            return quickEmbed(`${ICONS.check} **Blacklist Removed**\n**${target.tag}** restored.`, '#2ecc71');
+            return quickEmbed('✅ Blacklist Removed', `**${target.tag}** restored.`, '#2ecc71');
         }
     }
 
@@ -479,12 +471,12 @@ client.on(Events.InteractionCreate, async interaction => {
             case 'set-logs':
                 const logChan = options.getChannel('channel');
                 localConfig.set(guild.id, { ...localConfig.get(guild.id), log_channel: logChan.id });
-                return quickEmbed(`${ICONS.check} Logs will be sent to ${logChan}`, '#3498db');
+                return quickEmbed('📁 Logs Configured', `Logs will be sent to ${logChan}`, '#3498db');
 
             case 'slowmode':
                 const seconds = options.getInteger('seconds');
                 await channel.setRateLimitPerUser(seconds);
-                return quickEmbed(`${ICONS.timeout} Slowmode set to **${seconds}**s.`, '#3498db', true, 'Slowmode Updated');
+                return quickEmbed('⏲️ Slowmode Updated', `Set to **${seconds}**s.`, '#3498db', true);
 
             case 'purge':
                 const pAmount = Math.min(options.getInteger('amount'), 100);
@@ -492,13 +484,13 @@ client.on(Events.InteractionCreate, async interaction => {
                 const pFetched = await channel.messages.fetch({ limit: pAmount });
                 let pToDelete = pTarget ? pFetched.filter(m => m.author.id === pTarget.id) : pFetched;
                 const pDeleted = await channel.bulkDelete(pToDelete, true);
-                return quickEmbed(`${ICONS.check} Deleted **${pDeleted.size}** messages.`, '#95a5a6', true, 'Purge');
+                return quickEmbed('🧹 Purge', `Deleted **${pDeleted.size}** messages.`, '#95a5a6', true);
 
             case 'ban':
                 const bUser = options.getUser('user');
                 const bReason = options.getString('reason') || 'No reason provided';
                 await guild.members.ban(bUser, { reason: bReason });
-                return quickEmbed(`${ICONS.bankick} **Ban Applied**\n**Target:** ${bUser.tag}\n**Reason:** ${bReason}`, '#ff0000', true, 'Ban');
+                return quickEmbed('🔨 Ban Applied', `**Target:** ${bUser.tag}\n**Reason:** ${bReason}`, '#ff0000', true);
 
             case 'warn':
                 const wUser = options.getUser('user');
@@ -506,20 +498,21 @@ client.on(Events.InteractionCreate, async interaction => {
                 const wReason = options.getString('reason') || 'No reason provided';
                 warns.push({ date: new Date().toLocaleDateString(), reason: wReason });
                 localWarns.set(wUser.id, warns);
-                return quickEmbed(`${ICONS.warn} **Warning Issued**\n**Target:** ${wUser}\n**Total Warns:** ${warns.length}`, '#f1c40f', true, 'Warning Issued');
+                return quickEmbed('⚠️ Warning Issued', `**Target:** ${wUser}\n**Total Warns:** ${warns.length}`, '#f1c40f', true);
 
             case 'timeout':
                 const tMember = options.getMember('user');
                 const tMin = options.getInteger('minutes');
                 await tMember.timeout(tMin * 60000, options.getString('reason') || 'N/A');
-                return quickEmbed(`${ICONS.timeout} ${tMember.user.tag} muted for ${tMin}m.`, '#e67e22', true, 'Timeout');
+                return quickEmbed('⏳ Timeout', `${tMember.user.tag} muted for ${tMin}m.`, '#e67e22', true);
 
             case 'lock':
             case 'unlock':
                 const isLock = commandName === 'lock';
                 await channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: !isLock });
-                return quickEmbed(isLock ? `🔐 Channel state: **Locked**` : `🔓 Channel state: **Unlocked**`, isLock ? '#ff0000' : '#2ecc71', true, 'Lockdown');
+                return quickEmbed(isLock ? '🔐 Locked' : '🔓 Unlocked', `Channel state updated.`, isLock ? '#ff0000' : '#2ecc71', true);
             
+            // ... (Resto de comandos audit, roles, info, etc se mantienen igual)
             case 'audit':
                 const aTarget = options.getMember('user');
                 const accountAgeDays = Math.floor((Date.now() - aTarget.user.createdTimestamp) / 86400000);
@@ -539,7 +532,7 @@ client.on(Events.InteractionCreate, async interaction => {
         }
     } catch (err) {
         console.error(err);
-        return quickEmbed(`${ICONS.error} Failed: \`${err.message}\``, '#ff0000');
+        return quickEmbed('❌ Error', `Failed: \`${err.message}\``, '#ff0000');
     }
 });
 
