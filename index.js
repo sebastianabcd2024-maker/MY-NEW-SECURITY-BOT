@@ -42,7 +42,7 @@ const bypassCheck = (text) => {
 
 // --- COMMAND REGISTRATION ---
 client.once(Events.ClientReady, async () => {
-    console.log(`🛡️ Warden Systems v5.0 [ANTI-LINK + WHITE-LIST] | Online`);
+    console.log(`🛡️ Warden Systems v5.1 [ANTI-LINK TOGGLE] | Online`);
 
     const commands = [
         {
@@ -77,6 +77,11 @@ client.once(Events.ClientReady, async () => {
             options: [{ name: 'word', type: 3, description: 'Word to allow', required: true }]
         },
         { name: 'badwords-list', description: 'View the list of forbidden words' },
+        {
+            name: 'setup-antilinks',
+            description: 'Enable or disable the Anti-Link system',
+            options: [{ name: 'enabled', type: 5, description: 'True to enable, False to disable', required: true }]
+        },
         {
             name: 'link-whitelist-add',
             description: 'Allow a specific domain (e.g. youtube.com)',
@@ -190,7 +195,7 @@ client.on(Events.MessageCreate, async (message) => {
     if (blacklistedUsers.has(message.author.id)) return; 
     if (message.author.id === OWNER_ID) return; 
 
-    const config = localConfig.get(message.guild.id) || { spam_limit: 5, spam_seconds: 5 };
+    const config = localConfig.get(message.guild.id) || { spam_limit: 5, spam_seconds: 5, antilinks_enabled: false };
     const isAdmin = message.member?.permissions.has(PermissionFlagsBits.Administrator);
     const isImmuneRole = config.immune_role_id && message.member?.roles.cache.has(config.immune_role_id);
     const isAdminRole = config.admin_role_id && message.member?.roles.cache.has(config.admin_role_id);
@@ -198,25 +203,32 @@ client.on(Events.MessageCreate, async (message) => {
     if (isAdmin || isImmuneRole || isAdminRole) return;
 
     // --- ANTI-LINK SYSTEM ---
-    const linkRegExp = /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi;
-    if (linkRegExp.test(message.content)) {
-        const whitelist = linkWhitelist.get(message.guild.id) || new Set();
-        const foundLinks = message.content.match(linkRegExp);
-        
-        let shouldDelete = false;
-        for (const link of foundLinks) {
-            const url = new URL(link);
-            const domain = url.hostname.replace('www.', '');
-            if (!whitelist.has(domain)) {
-                shouldDelete = true;
-                break;
+    if (config.antilinks_enabled) {
+        const linkRegExp = /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi;
+        if (linkRegExp.test(message.content)) {
+            const whitelist = linkWhitelist.get(message.guild.id) || new Set();
+            const foundLinks = message.content.match(linkRegExp);
+            
+            let shouldDelete = false;
+            for (const link of foundLinks) {
+                try {
+                    const url = new URL(link);
+                    const domain = url.hostname.replace('www.', '');
+                    if (!whitelist.has(domain)) {
+                        shouldDelete = true;
+                        break;
+                    }
+                } catch (e) {
+                    shouldDelete = true; // Delete malformed links that still trigger regex
+                    break;
+                }
             }
-        }
 
-        if (shouldDelete) {
-            await message.delete().catch(() => null);
-            return message.channel.send(`🚫 ${message.author}, links are not allowed unless whitelisted.`)
-                .then(m => setTimeout(() => m.delete(), 3000));
+            if (shouldDelete) {
+                await message.delete().catch(() => null);
+                return message.channel.send(`🚫 ${message.author}, links are not allowed here.`)
+                    .then(m => setTimeout(() => m.delete(), 3000));
+            }
         }
     }
 
@@ -329,11 +341,17 @@ client.on(Events.InteractionCreate, async interaction => {
         }
     }
 
-    // --- LINK WHITELIST COMMANDS ---
-    if (commandName.startsWith('link-whitelist')) {
+    // --- LINK WHITELIST & SETUP COMMANDS ---
+    if (commandName.startsWith('link-whitelist') || commandName === 'setup-antilinks') {
         const config = localConfig.get(guild.id);
         const hasAuth = isOwner || member.permissions.has(PermissionFlagsBits.ManageGuild) || (config && member.roles.cache.has(config.admin_role_id));
         if (commandName !== 'link-whitelist-list' && !hasAuth) return quickEmbed('❌ Access Denied', 'Requires Manage Server permissions.', '#ff0000');
+
+        if (commandName === 'setup-antilinks') {
+            const isEnabled = options.getBoolean('enabled');
+            localConfig.set(guild.id, { ...localConfig.get(guild.id), antilinks_enabled: isEnabled });
+            return quickEmbed(isEnabled ? '🛡️ Anti-Links Enabled' : '🔓 Anti-Links Disabled', `The system will ${isEnabled ? 'now' : 'no longer'} filter external links.`, isEnabled ? '#2ecc71' : '#e74c3c', true);
+        }
 
         let currentWhitelist = linkWhitelist.get(guild.id) || new Set();
 
@@ -352,7 +370,7 @@ client.on(Events.InteractionCreate, async interaction => {
             return quickEmbed('❌ Error', 'Domain not found in whitelist.', '#ff0000');
         }
         if (commandName === 'link-whitelist-list') {
-            const list = Array.from(currentWhitelist).map(d => `• \`${d}\``).join('\n') || 'All links are currently blocked.';
+            const list = Array.from(currentWhitelist).map(d => `• \`${d}\``).join('\n') || 'No domains whitelisted.';
             return quickEmbed('📜 Whitelisted Domains', list, '#3498db');
         }
     }
