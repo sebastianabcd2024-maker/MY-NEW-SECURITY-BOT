@@ -19,6 +19,7 @@ const TOKEN = process.env.DISCORD_TOKEN;
 const localConfig = new Map(); 
 const localWarns = new Map();
 const spamMap = new Map(); 
+const floodMap = new Map(); // Anti-Flood Storage
 const blacklistedUsers = new Set(); // Global Blacklist System
 const forbiddenWords = new Map(); // Forbidden words storage per guild (Stores: {word: string, level: number})
 const linkWhitelist = new Map(); // Domain Whitelist per guild
@@ -42,7 +43,7 @@ const bypassCheck = (text) => {
 
 // --- COMMAND REGISTRATION ---
 client.once(Events.ClientReady, async () => {
-    console.log(`🛡️ Warden Systems v5.1 [ANTI-LINK TOGGLE] | Online`);
+    console.log(`🛡️ Warden Systems v5.2 [ANTI-FLOOD ADDED] | Online`);
 
     const commands = [
         {
@@ -110,6 +111,14 @@ client.once(Events.ClientReady, async () => {
                 { name: 'limit', type: 4, description: 'Message limit', required: true },
                 { name: 'seconds', type: 4, description: 'Time window', required: true },
                 { name: 'immune_role', type: 8, description: 'Role that bypasses anti-spam', required: false }
+            ] 
+        },
+        { 
+            name: 'setup-antiflood', 
+            description: 'Configure Anti-Flood (Repeated messages)', 
+            options: [
+                { name: 'max_duplicates', type: 4, description: 'Max allowed identical messages', required: true },
+                { name: 'enabled', type: 5, description: 'Enable Anti-Flood', required: true }
             ] 
         },
         { 
@@ -195,12 +204,30 @@ client.on(Events.MessageCreate, async (message) => {
     if (blacklistedUsers.has(message.author.id)) return; 
     if (message.author.id === OWNER_ID) return; 
 
-    const config = localConfig.get(message.guild.id) || { spam_limit: 5, spam_seconds: 5, antilinks_enabled: false };
+    const config = localConfig.get(message.guild.id) || { spam_limit: 5, spam_seconds: 5, antilinks_enabled: false, flood_enabled: false, flood_max: 3 };
     const isAdmin = message.member?.permissions.has(PermissionFlagsBits.Administrator);
     const isImmuneRole = config.immune_role_id && message.member?.roles.cache.has(config.immune_role_id);
     const isAdminRole = config.admin_role_id && message.member?.roles.cache.has(config.admin_role_id);
 
     if (isAdmin || isImmuneRole || isAdminRole) return;
+
+    // --- ANTI-FLOOD (REPETITIVE CONTENT) ---
+    if (config.flood_enabled) {
+        const userFlood = floodMap.get(message.author.id) || { lastContent: "", count: 0 };
+        if (message.content === userFlood.lastContent && message.content.length > 2) {
+            userFlood.count++;
+            if (userFlood.count >= (config.flood_max || 3)) {
+                userFlood.count = 0;
+                await message.delete().catch(() => null);
+                await message.member.timeout(300000, 'Anti-Flood: Repetitive messages');
+                return message.channel.send(`🚫 ${message.author}, stop flooding with the same message.`);
+            }
+        } else {
+            userFlood.lastContent = message.content;
+            userFlood.count = 1;
+        }
+        floodMap.set(message.author.id, userFlood);
+    }
 
     // --- ANTI-LINK SYSTEM ---
     if (config.antilinks_enabled) {
@@ -342,10 +369,17 @@ client.on(Events.InteractionCreate, async interaction => {
     }
 
     // --- LINK WHITELIST & SETUP COMMANDS ---
-    if (commandName.startsWith('link-whitelist') || commandName === 'setup-antilinks') {
+    if (commandName.startsWith('link-whitelist') || commandName === 'setup-antilinks' || commandName === 'setup-antiflood') {
         const config = localConfig.get(guild.id);
         const hasAuth = isOwner || member.permissions.has(PermissionFlagsBits.ManageGuild) || (config && member.roles.cache.has(config.admin_role_id));
         if (commandName !== 'link-whitelist-list' && !hasAuth) return quickEmbed('❌ Access Denied', 'Requires Manage Server permissions.', '#ff0000');
+
+        if (commandName === 'setup-antiflood') {
+            const isEnabled = options.getBoolean('enabled');
+            const maxDup = options.getInteger('max_duplicates');
+            localConfig.set(guild.id, { ...localConfig.get(guild.id), flood_enabled: isEnabled, flood_max: maxDup });
+            return quickEmbed('🛡️ Anti-Flood Configured', `**Status:** ${isEnabled ? 'Enabled' : 'Disabled'}\n**Limit:** ${maxDup} repeated messages.`, isEnabled ? '#2ecc71' : '#e74c3c', true);
+        }
 
         if (commandName === 'setup-antilinks') {
             const isEnabled = options.getBoolean('enabled');
