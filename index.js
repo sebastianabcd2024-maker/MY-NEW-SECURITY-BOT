@@ -21,6 +21,7 @@ const localWarns = new Map();
 const spamMap = new Map(); 
 const blacklistedUsers = new Set(); // Global Blacklist System
 const forbiddenWords = new Map(); // Forbidden words storage per guild (Stores: {word: string, level: number})
+const linkWhitelist = new Map(); // Domain Whitelist per guild
 
 // --- HELPER: ADVANCED NORMALIZATION ---
 const normalize = (text) => {
@@ -41,7 +42,7 @@ const bypassCheck = (text) => {
 
 // --- COMMAND REGISTRATION ---
 client.once(Events.ClientReady, async () => {
-    console.log(`🛡️ Warden Systems v4.9 [MULTI-LEVEL FILTER] | Online`);
+    console.log(`🛡️ Warden Systems v5.0 [ANTI-LINK + WHITE-LIST] | Online`);
 
     const commands = [
         {
@@ -76,6 +77,17 @@ client.once(Events.ClientReady, async () => {
             options: [{ name: 'word', type: 3, description: 'Word to allow', required: true }]
         },
         { name: 'badwords-list', description: 'View the list of forbidden words' },
+        {
+            name: 'link-whitelist-add',
+            description: 'Allow a specific domain (e.g. youtube.com)',
+            options: [{ name: 'domain', type: 3, description: 'The domain to whitelist', required: true }]
+        },
+        {
+            name: 'link-whitelist-remove',
+            description: 'Remove a domain from whitelist',
+            options: [{ name: 'domain', type: 3, description: 'The domain to remove', required: true }]
+        },
+        { name: 'link-whitelist-list', description: 'List all whitelisted domains' },
         { 
             name: 'broadcast', 
             description: '[OWNER ONLY] Global Announcement', 
@@ -172,7 +184,7 @@ client.on(Events.GuildMemberAdd, async (member) => {
     }
 });
 
-// --- ANTI-SPAM & WORD FILTER ---
+// --- ANTI-SPAM, WORD FILTER & ANTI-LINK ---
 client.on(Events.MessageCreate, async (message) => {
     if (message.author.bot || !message.guild) return;
     if (blacklistedUsers.has(message.author.id)) return; 
@@ -184,6 +196,29 @@ client.on(Events.MessageCreate, async (message) => {
     const isAdminRole = config.admin_role_id && message.member?.roles.cache.has(config.admin_role_id);
 
     if (isAdmin || isImmuneRole || isAdminRole) return;
+
+    // --- ANTI-LINK SYSTEM ---
+    const linkRegExp = /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi;
+    if (linkRegExp.test(message.content)) {
+        const whitelist = linkWhitelist.get(message.guild.id) || new Set();
+        const foundLinks = message.content.match(linkRegExp);
+        
+        let shouldDelete = false;
+        for (const link of foundLinks) {
+            const url = new URL(link);
+            const domain = url.hostname.replace('www.', '');
+            if (!whitelist.has(domain)) {
+                shouldDelete = true;
+                break;
+            }
+        }
+
+        if (shouldDelete) {
+            await message.delete().catch(() => null);
+            return message.channel.send(`🚫 ${message.author}, links are not allowed unless whitelisted.`)
+                .then(m => setTimeout(() => m.delete(), 3000));
+        }
+    }
 
     // --- MULTI-LEVEL WORD FILTER ---
     const serverWordsMap = forbiddenWords.get(message.guild.id);
@@ -198,7 +233,7 @@ client.on(Events.MessageCreate, async (message) => {
             if (level === 1 && messageWords.includes(cleanForbidden)) detected = true;
             if (level === 2 && message.content.toLowerCase().includes(cleanForbidden)) detected = true;
             if (level === 3 && ultraClean.includes(bypassCheck(cleanForbidden))) detected = true;
-            
+
             if (detected) break;
         }
 
@@ -242,7 +277,7 @@ client.on(Events.InteractionCreate, async interaction => {
     if (blacklistedUsers.has(user.id)) return; 
 
     const isOwner = user.id === OWNER_ID;
-    const isPublic = ['audit', 'flip', 'color', 'infractions', 'ban', 'kick', 'warn', 'timeout', 'embed', 'badwords-list'].includes(commandName);
+    const isPublic = ['audit', 'flip', 'color', 'infractions', 'ban', 'kick', 'warn', 'timeout', 'embed', 'badwords-list', 'link-whitelist-list'].includes(commandName);
     await interaction.deferReply({ ephemeral: !isPublic });
 
     const sendGlobalLog = (title, desc, color) => {
@@ -291,6 +326,34 @@ client.on(Events.InteractionCreate, async interaction => {
             const list = Array.from(currentWordsMap.entries())
                 .map(([w, l]) => `• \`${w}\` (Lvl ${l})`).join('\n') || 'No blocked words found.';
             return quickEmbed('📜 Blocklist', list, '#f1c40f');
+        }
+    }
+
+    // --- LINK WHITELIST COMMANDS ---
+    if (commandName.startsWith('link-whitelist')) {
+        const config = localConfig.get(guild.id);
+        const hasAuth = isOwner || member.permissions.has(PermissionFlagsBits.ManageGuild) || (config && member.roles.cache.has(config.admin_role_id));
+        if (commandName !== 'link-whitelist-list' && !hasAuth) return quickEmbed('❌ Access Denied', 'Requires Manage Server permissions.', '#ff0000');
+
+        let currentWhitelist = linkWhitelist.get(guild.id) || new Set();
+
+        if (commandName === 'link-whitelist-add') {
+            const domain = options.getString('domain').toLowerCase().replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0];
+            currentWhitelist.add(domain);
+            linkWhitelist.set(guild.id, currentWhitelist);
+            return quickEmbed('🔗 Domain Whitelisted', `Domain \`${domain}\` is now allowed.`, '#2ecc71', true);
+        }
+        if (commandName === 'link-whitelist-remove') {
+            const domain = options.getString('domain').toLowerCase();
+            if (currentWhitelist.delete(domain)) {
+                linkWhitelist.set(guild.id, currentWhitelist);
+                return quickEmbed('🗑️ Domain Removed', `Domain \`${domain}\` removed from whitelist.`, '#e74c3c', true);
+            }
+            return quickEmbed('❌ Error', 'Domain not found in whitelist.', '#ff0000');
+        }
+        if (commandName === 'link-whitelist-list') {
+            const list = Array.from(currentWhitelist).map(d => `• \`${d}\``).join('\n') || 'All links are currently blocked.';
+            return quickEmbed('📜 Whitelisted Domains', list, '#3498db');
         }
     }
 
@@ -363,7 +426,7 @@ client.on(Events.InteractionCreate, async interaction => {
     const config = localConfig.get(guild.id);
     const hasAuth = isOwner || member.permissions.has(PermissionFlagsBits.Administrator) || (config && member.roles.cache.has(config.admin_role_id));
 
-    if (!['audit', 'flip', 'color', 'embed', 'badwords-list'].includes(commandName) && !hasAuth) {
+    if (!['audit', 'flip', 'color', 'embed', 'badwords-list', 'link-whitelist-list'].includes(commandName) && !hasAuth) {
         return quickEmbed('❌ Access Denied', 'Unauthorized access.', '#ff0000');
     }
 
