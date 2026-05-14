@@ -15,22 +15,31 @@ const APP_ID = "1495239262579195986";
 const OWNER_ID = "1238184110975877130"; // Master Key
 const TOKEN = process.env.DISCORD_TOKEN; 
 
+// --- EMOJI IDS ---
+const EMOJIS = {
+    check: "<:check_icon1:1504601887247171605>",
+    error: "<:error_icon1:150460393220587114123>",
+    warn: "<:warn_icon1:1504605302878769272>",
+    timeout: "<:timeout_icon1:1504605891087958147>",
+    bankick: "<:bankick_icon1:1504606705596498032>"
+};
+
 // --- LOCAL STORAGE ---
 const localConfig = new Map(); 
 const localWarns = new Map();
 const spamMap = new Map(); 
-const floodMap = new Map(); // Anti-Flood Storage
-const blacklistedUsers = new Set(); // Global Blacklist System
-const forbiddenWords = new Map(); // Forbidden words storage per guild (Stores: {word: string, level: number})
-const linkWhitelist = new Map(); // Domain Whitelist per guild
+const floodMap = new Map(); 
+const blacklistedUsers = new Set(); 
+const forbiddenWords = new Map(); 
+const linkWhitelist = new Map(); 
 
 // --- HELPER: ADVANCED NORMALIZATION ---
 const normalize = (text) => {
     return text.toLowerCase()
         .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "") // Remove accents
-        .replace(/[^a-z0-9\s]/g, "")    // Remove special characters
-        .split(/\s+/);                  // Array of words
+        .replace(/[\u0300-\u036f]/g, "") 
+        .replace(/[^a-z0-9\s]/g, "")    
+        .split(/\s+/);                  
 };
 
 // --- HELPER: ANTI-BYPASS (LEVEL 3) ---
@@ -41,14 +50,14 @@ const bypassCheck = (text) => {
         .replace(/8/g, 'b').replace(/v/g, 'u').replace(/\W|_/g, '');
 };
 
-// --- HELPER: AUTOMOD LOGGING (NUEVO) ---
+// --- HELPER: AUTOMOD LOGGING ---
 const sendAutoModLog = (guild, user, action, reason, content, color = '#ff9900') => {
     const conf = localConfig.get(guild.id);
     if (!conf || !conf.log_channel) return;
     const logChannel = guild.channels.cache.get(conf.log_channel);
     if (logChannel) {
         const logEmbed = new EmbedBuilder()
-            .setTitle(`🛡️ Auto-Mod Action: ${action}`)
+            .setTitle(`${EMOJIS.warn} Auto-Mod Action: ${action}`)
             .setColor(color)
             .addFields(
                 { name: '👤 User', value: `${user.tag} (${user.id})`, inline: true },
@@ -62,7 +71,7 @@ const sendAutoModLog = (guild, user, action, reason, content, color = '#ff9900')
 
 // --- COMMAND REGISTRATION ---
 client.once(Events.ClientReady, async () => {
-    console.log(`🛡️ Warden Systems v5.2 [ANTI-FLOOD ADDED] | Online`);
+    console.log(`🛡️ Warden Systems v5.2 | Online`);
 
     const commands = [
         {
@@ -231,7 +240,6 @@ client.on(Events.MessageCreate, async (message) => {
 
     if (isAdmin || isImmuneRole || isAdminRole) return;
 
-    // --- ANTI-FLOOD (REPETITIVE CONTENT) ---
     if (config.flood_enabled) {
         const userFlood = floodMap.get(message.author.id) || { lastContent: "", count: 0 };
         if (message.content === userFlood.lastContent && message.content.length > 2) {
@@ -241,7 +249,7 @@ client.on(Events.MessageCreate, async (message) => {
                 await message.delete().catch(() => null);
                 await message.member.timeout(300000, 'Anti-Flood: Repetitive messages');
                 sendAutoModLog(message.guild, message.author, 'Anti-Flood', 'Repetitive messages (Flood)', message.content);
-                return message.channel.send(`🚫 ${message.author}, stop flooding with the same message.`);
+                return message.channel.send(`${EMOJIS.timeout} ${message.author}, stop flooding.`);
             }
         } else {
             userFlood.lastContent = message.content;
@@ -250,7 +258,6 @@ client.on(Events.MessageCreate, async (message) => {
         floodMap.set(message.author.id, userFlood);
     }
 
-    // --- ANTI-LINK SYSTEM ---
     if (config.antilinks_enabled) {
         const linkRegExp = /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi;
         if (linkRegExp.test(message.content)) {
@@ -267,7 +274,7 @@ client.on(Events.MessageCreate, async (message) => {
                         break;
                     }
                 } catch (e) {
-                    shouldDelete = true; // Delete malformed links that still trigger regex
+                    shouldDelete = true; 
                     break;
                 }
             }
@@ -275,13 +282,12 @@ client.on(Events.MessageCreate, async (message) => {
             if (shouldDelete) {
                 await message.delete().catch(() => null);
                 sendAutoModLog(message.guild, message.author, 'Anti-Link', 'Unauthorized link posted.', message.content);
-                return message.channel.send(`🚫 ${message.author}, links are not allowed here.`)
+                return message.channel.send(`${EMOJIS.error} ${message.author}, links are not allowed here.`)
                     .then(m => setTimeout(() => m.delete(), 3000));
             }
         }
     }
 
-    // --- MULTI-LEVEL WORD FILTER ---
     const serverWordsMap = forbiddenWords.get(message.guild.id);
     if (serverWordsMap && serverWordsMap.size > 0) {
         const messageWords = normalize(message.content);
@@ -305,12 +311,11 @@ client.on(Events.MessageCreate, async (message) => {
         if (detected) {
             await message.delete().catch(() => null);
             sendAutoModLog(message.guild, message.author, 'Word Filter', `Restricted word detected: ${detectedWord}`, message.content, '#ff4444');
-            return message.channel.send(`⚠️ ${message.author}, that word is restricted here.`)
+            return message.channel.send(`${EMOJIS.warn} ${message.author}, that word is restricted here.`)
                 .then(m => setTimeout(() => m.delete(), 3000));
         }
     }
 
-    // --- ANTI-SPAM ---
     const now = Date.now();
     const windowMs = (config.spam_seconds || 5) * 1000;
     const limit = config.spam_limit || 5;
@@ -331,7 +336,7 @@ client.on(Events.MessageCreate, async (message) => {
             await message.channel.bulkDelete(msgs.filter(m => m.author.id === message.author.id), true);
             await message.member.timeout(600000, 'Anti-Spam Triggered');
             sendAutoModLog(message.guild, message.author, 'Anti-Spam', `Sent ${limit} messages too quickly.`, 'N/A');
-            message.channel.send(`🛡️ **Warden:** ${message.author} muted for spamming.`);
+            message.channel.send(`${EMOJIS.timeout} ${message.author} muted for spamming.`);
         } catch (err) { console.error('Anti-spam error ignored.'); }
     }
 });
@@ -359,18 +364,17 @@ client.on(Events.InteractionCreate, async interaction => {
         }
     };
 
-    const quickEmbed = (title, desc, color = '#ffffff', logIt = false) => {
-        if (logIt) sendGlobalLog(title, desc, color);
+    const directReply = (emoji, text, color = '#ffffff', logIt = false) => {
+        if (logIt) sendGlobalLog(text, text, color);
         return interaction.editReply({ 
-            embeds: [new EmbedBuilder().setTitle(title).setDescription(desc).setColor(color).setTimestamp()] 
+            content: `${emoji} ${text}`
         }).catch(() => null);
     };
 
-    // --- BADWORDS COMMANDS ---
     if (commandName.startsWith('badwords')) {
         const config = localConfig.get(guild.id);
         const hasAuth = isOwner || member.permissions.has(PermissionFlagsBits.ManageMessages) || (config && member.roles.cache.has(config.admin_role_id));
-        if (!hasAuth) return quickEmbed('❌ Access Denied', 'You do not have permission to manage the filter.', '#ff0000');
+        if (!hasAuth) return directReply(EMOJIS.error, 'Access Denied', '#ff0000');
 
         let currentWordsMap = forbiddenWords.get(guild.id) || new Map();
 
@@ -379,40 +383,39 @@ client.on(Events.InteractionCreate, async interaction => {
             const level = options.getInteger('level');
             currentWordsMap.set(word, level);
             forbiddenWords.set(guild.id, currentWordsMap);
-            return quickEmbed('🚫 Word Blocked', `The word \`${word}\` added with **Level ${level}**.`, '#2ecc71', true);
+            return directReply(EMOJIS.check, `Word \`${word}\` blocked (Lvl ${level}).`, '#2ecc71', true);
         }
         if (commandName === 'badwords-remove') {
             const word = options.getString('word').toLowerCase();
             if (currentWordsMap.delete(word)) {
                 forbiddenWords.set(guild.id, currentWordsMap);
-                return quickEmbed('✅ Word Removed', `The word \`${word}\` is no longer blocked.`, '#3498db', true);
+                return directReply(EMOJIS.check, `Word \`${word}\` unblocked.`, '#3498db', true);
             }
-            return quickEmbed('❌ Error', 'That word was not in the list.', '#ff0000');
+            return directReply(EMOJIS.error, 'Word not found.', '#ff0000');
         }
         if (commandName === 'badwords-list') {
             const list = Array.from(currentWordsMap.entries())
-                .map(([w, l]) => `• \`${w}\` (Lvl ${l})`).join('\n') || 'No blocked words found.';
-            return quickEmbed('📜 Blocklist', list, '#f1c40f');
+                .map(([w, l]) => `• \`${w}\` (Lvl ${l})`).join('\n') || 'No blocked words.';
+            return interaction.editReply({ embeds: [new EmbedBuilder().setTitle('📜 Blocklist').setDescription(list).setColor('#f1c40f')] });
         }
     }
 
-    // --- LINK WHITELIST & SETUP COMMANDS ---
     if (commandName.startsWith('link-whitelist') || commandName === 'setup-antilinks' || commandName === 'setup-antiflood') {
         const config = localConfig.get(guild.id);
         const hasAuth = isOwner || member.permissions.has(PermissionFlagsBits.ManageGuild) || (config && member.roles.cache.has(config.admin_role_id));
-        if (commandName !== 'link-whitelist-list' && !hasAuth) return quickEmbed('❌ Access Denied', 'Requires Manage Server permissions.', '#ff0000');
+        if (commandName !== 'link-whitelist-list' && !hasAuth) return directReply(EMOJIS.error, 'Access Denied.', '#ff0000');
 
         if (commandName === 'setup-antiflood') {
             const isEnabled = options.getBoolean('enabled');
             const maxDup = options.getInteger('max_duplicates');
             localConfig.set(guild.id, { ...localConfig.get(guild.id), flood_enabled: isEnabled, flood_max: maxDup });
-            return quickEmbed('🛡️ Anti-Flood Configured', `**Status:** ${isEnabled ? 'Enabled' : 'Disabled'}\n**Limit:** ${maxDup} repeated messages.`, isEnabled ? '#2ecc71' : '#e74c3c', true);
+            return directReply(EMOJIS.check, `Anti-Flood: ${isEnabled ? 'ON' : 'OFF'} (Limit: ${maxDup})`, '#2ecc71', true);
         }
 
         if (commandName === 'setup-antilinks') {
             const isEnabled = options.getBoolean('enabled');
             localConfig.set(guild.id, { ...localConfig.get(guild.id), antilinks_enabled: isEnabled });
-            return quickEmbed(isEnabled ? '🛡️ Anti-Links Enabled' : '🔓 Anti-Links Disabled', `The system will ${isEnabled ? 'now' : 'no longer'} filter external links.`, isEnabled ? '#2ecc71' : '#e74c3c', true);
+            return directReply(EMOJIS.check, `Anti-Links: ${isEnabled ? 'ON' : 'OFF'}`, isEnabled ? '#2ecc71' : '#e74c3c', true);
         }
 
         let currentWhitelist = linkWhitelist.get(guild.id) || new Set();
@@ -421,296 +424,185 @@ client.on(Events.InteractionCreate, async interaction => {
             const domain = options.getString('domain').toLowerCase().replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0];
             currentWhitelist.add(domain);
             linkWhitelist.set(guild.id, currentWhitelist);
-            return quickEmbed('🔗 Domain Whitelisted', `Domain \`${domain}\` is now allowed.`, '#2ecc71', true);
+            return directReply(EMOJIS.check, `Domain \`${domain}\` allowed.`, '#2ecc71', true);
         }
         if (commandName === 'link-whitelist-remove') {
             const domain = options.getString('domain').toLowerCase();
             if (currentWhitelist.delete(domain)) {
                 linkWhitelist.set(guild.id, currentWhitelist);
-                return quickEmbed('🗑️ Domain Removed', `Domain \`${domain}\` removed from whitelist.`, '#e74c3c', true);
+                return directReply(EMOJIS.check, `Domain \`${domain}\` removed.`, '#e74c3c', true);
             }
-            return quickEmbed('❌ Error', 'Domain not found in whitelist.', '#ff0000');
+            return directReply(EMOJIS.error, 'Domain not found.', '#ff0000');
         }
         if (commandName === 'link-whitelist-list') {
-            const list = Array.from(currentWhitelist).map(d => `• \`${d}\``).join('\n') || 'No domains whitelisted.';
-            return quickEmbed('📜 Whitelisted Domains', list, '#3498db');
+            const list = Array.from(currentWhitelist).map(d => `• \`${d}\``).join('\n') || 'No domains.';
+            return interaction.editReply({ embeds: [new EmbedBuilder().setTitle('📜 Whitelist').setDescription(list).setColor('#3498db')] });
         }
     }
 
-    // --- MASTER COMMAND: EVAL ---
     if (commandName === 'eval') {
-        if (!isOwner) return quickEmbed('❌ Critical Access Denied', 'Direct Terminal Access is restricted to the System Developer.', '#ff0000');
-
+        if (!isOwner) return directReply(EMOJIS.error, 'Terminal Access Restricted.', '#ff0000');
         try {
             const code = options.getString('code');
             let evalued = await eval(code);
-
             if (typeof evalued !== "string") evalued = require("util").inspect(evalued, { depth: 0 });
-
-            if (evalued.includes(client.token) || evalued.includes(TOKEN)) {
-                evalued = "Error: Output contains sensitive bot tokens. Execution blocked.";
-            }
-
-            const evalEmbed = new EmbedBuilder()
-                .setTitle('💻 System Console Output')
-                .addFields(
-                    { name: '📥 Input', value: `\`\`\`js\n${code}\n\`\`\`` },
-                    { name: '📤 Output', value: `\`\`\`js\n${evalued.substring(0, 1014)}\n\`\`\`` }
-                )
-                .setColor('#2ecc71')
-                .setTimestamp();
-
-            return interaction.editReply({ embeds: [evalEmbed] });
+            if (evalued.includes(TOKEN)) evalued = "Sensitive data hidden.";
+            return interaction.editReply({ content: `\`\`\`js\n${evalued.substring(0, 1900)}\n\`\`\`` });
         } catch (e) {
-            return quickEmbed('💻 Console Error', `\`\`\`js\n${e.message}\n\`\`\``, '#e74c3c');
+            return directReply(EMOJIS.error, `Error: ${e.message}`, '#e74c3c');
         }
     }
 
-    // --- OWNER COMMAND: BLACKLIST ---
     if (commandName === 'blacklist') {
-        if (!isOwner) return quickEmbed('❌ Access Denied', 'Restricted to System Developer.', '#ff0000');
+        if (!isOwner) return directReply(EMOJIS.error, 'Restricted command.', '#ff0000');
         const action = options.getString('action');
         const target = options.getUser('user');
-        const reason = options.getString('reason') || 'No reason specified';
-
         if (action === 'add') {
-            if (target.id === OWNER_ID) return quickEmbed('❌ Error', 'You cannot blacklist yourself.', '#ff0000');
             blacklistedUsers.add(target.id);
-            return quickEmbed('🚫 Global Blacklist', `User **${target.tag}** has been blacklisted.\n**Reason:** ${reason}`, '#000000');
+            return directReply(EMOJIS.bankick, `User ${target.tag} blacklisted.`, '#000000');
         } else {
             blacklistedUsers.delete(target.id);
-            return quickEmbed('✅ Blacklist Removed', `User **${target.tag}** is no longer blacklisted.`, '#2ecc71');
+            return directReply(EMOJIS.check, `User ${target.tag} removed from blacklist.`, '#2ecc71');
         }
     }
 
-    // --- OWNER COMMAND: BROADCAST ---
     if (commandName === 'broadcast') {
-        if (!isOwner) return quickEmbed('❌ Access Denied', 'This command is restricted to the System Developer.', '#ff0000');
+        if (!isOwner) return directReply(EMOJIS.error, 'Restricted command.', '#ff0000');
         const bMsg = options.getString('message');
-        const bTitle = options.getString('title') || '🚨 Warden Systems: Global Announcement';
-
         let successCount = 0;
         client.guilds.cache.forEach(g => {
             const conf = localConfig.get(g.id);
             const targetChannel = g.channels.cache.get(conf?.log_channel) || g.channels.cache.find(c => c.type === ChannelType.GuildText && c.permissionsFor(g.members.me).has(PermissionFlagsBits.SendMessages));
-
             if (targetChannel) {
-                const bEmbed = new EmbedBuilder().setTitle(bTitle).setDescription(bMsg).setColor('#f1c40f').setFooter({ text: 'Broadcast sent by System Owner' }).setTimestamp();
-                targetChannel.send({ embeds: [bEmbed] }).catch(() => null);
+                targetChannel.send({ embeds: [new EmbedBuilder().setTitle('📢 Announcement').setDescription(bMsg).setColor('#f1c40f')] }).catch(() => null);
                 successCount++;
             }
         });
-        return quickEmbed('📢 Broadcast Sent', `Announcement delivered to **${successCount}** servers.`, '#2ecc71');
+        return directReply(EMOJIS.check, `Broadcast sent to ${successCount} servers.`, '#2ecc71');
     }
 
     const config = localConfig.get(guild.id);
     const hasAuth = isOwner || member.permissions.has(PermissionFlagsBits.Administrator) || (config && member.roles.cache.has(config.admin_role_id));
 
     if (!['audit', 'flip', 'color', 'embed', 'badwords-list', 'link-whitelist-list'].includes(commandName) && !hasAuth) {
-        return quickEmbed('❌ Access Denied', 'Unauthorized access.', '#ff0000');
+        return directReply(EMOJIS.error, 'Unauthorized access.', '#ff0000');
     }
 
     try {
         switch (commandName) {
             case 'slowmode':
                 const seconds = options.getInteger('seconds');
-                const sReason = options.getString('reason') || 'No reason provided';
-                await channel.setRateLimitPerUser(seconds, sReason);
-                return quickEmbed('⏲️ Slowmode Updated', `The slowmode has been set to **${seconds}** seconds.\n**Reason:** ${sReason}`, '#3498db', true);
+                await channel.setRateLimitPerUser(seconds);
+                return directReply(EMOJIS.timeout, `Slowmode set to ${seconds}s.`, '#3498db', true);
 
             case 'purge':
                 const pAmount = Math.min(options.getInteger('amount'), 100);
                 const pTarget = options.getUser('user');
                 const pFetched = await channel.messages.fetch({ limit: pAmount });
                 let pToDelete = pTarget ? pFetched.filter(m => m.author.id === pTarget.id) : pFetched;
-                if (pToDelete.size === 0) throw new Error('No messages found to delete.');
                 const pDeleted = await channel.bulkDelete(pToDelete, true);
-                return quickEmbed('🧹 Purge', `Deleted **${pDeleted.size}** messages${pTarget ? ` from ${pTarget.tag}` : ''}.`, '#95a5a6', true);
+                return directReply(EMOJIS.check, `Deleted ${pDeleted.size} messages.`, '#95a5a6', true);
 
             case 'purge-after':
                 const msgId = options.getString('message_id');
                 const paFetched = await channel.messages.fetch({ after: msgId, limit: 100 });
-                if (paFetched.size === 0) throw new Error('No messages found after this ID.');
                 const paDeleted = await channel.bulkDelete(paFetched, true);
-                return quickEmbed('🧹 Purge After', `Deleted **${paDeleted.size}** messages sent after ID: \`${msgId}\`.`, '#95a5a6', true);
+                return directReply(EMOJIS.check, `Deleted ${paDeleted.size} messages after ID.`, '#95a5a6', true);
 
             case 'setup-antispam':
-                const saLimit = options.getInteger('limit');
-                const saSeconds = options.getInteger('seconds');
-                const saImmune = options.getRole('immune_role');
-                localConfig.set(guild.id, { ...localConfig.get(guild.id), spam_limit: saLimit, spam_seconds: saSeconds, immune_role_id: saImmune?.id || null });
-                return quickEmbed('🛡️ Anti-Spam Configured', `**Limit:** ${saLimit} msgs\n**Window:** ${saSeconds}s\n**Immune:** ${saImmune || 'None'}`, '#2ecc71', true);
+                localConfig.set(guild.id, { ...localConfig.get(guild.id), spam_limit: options.getInteger('limit'), spam_seconds: options.getInteger('seconds'), immune_role_id: options.getRole('immune_role')?.id || null });
+                return directReply(EMOJIS.check, 'Anti-Spam configured.', '#2ecc71', true);
 
             case 'create-role':
-                const rName = options.getString('name');
-                const rColor = options.getString('color') || '#95a5a6';
-                const rLevel = options.getString('level');
-                let perms = []; let hoist = false;
-                switch (rLevel) {
-                    case 'member': perms = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]; break;
-                    case 'moderator': perms = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ManageMessages, PermissionFlagsBits.KickMembers]; hoist = true; break;
-                    case 'senior_mod': perms = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ManageMessages, PermissionFlagsBits.BanMembers]; hoist = true; break;
-                    case 'administrator': perms = [PermissionFlagsBits.Administrator]; hoist = true; break;
-                    case 'developer': perms = [PermissionFlagsBits.Administrator, PermissionFlagsBits.ManageGuild]; hoist = true; break;
-                    default: perms = [PermissionFlagsBits.ViewChannel]; break;
-                }
-                const newRole = await guild.roles.create({ name: rName, color: rColor.startsWith('#') ? rColor : '#95a5a6', permissions: perms, hoist: hoist });
-                return quickEmbed('🎭 Role Created', `**Name:** ${newRole}\n**Level:** ${rLevel || 'Decoration'}`, newRole.hexColor, true);
+                const newRole = await guild.roles.create({ name: options.getString('name'), color: options.getString('color') || '#95a5a6', hoist: true });
+                return directReply(EMOJIS.check, `Role ${newRole} created.`, newRole.hexColor, true);
 
             case 'set-admin-role':
                 const role = options.getRole('role');
                 localConfig.set(guild.id, { ...localConfig.get(guild.id), admin_role_id: role.id });
-                return quickEmbed('✅ Security Updated', `Admin role set to: **${role.name}**`, '#2ecc71');
+                return directReply(EMOJIS.check, `Admin role set to ${role.name}`, '#2ecc71');
 
             case 'set-logs':
                 const logChan = options.getChannel('channel');
                 localConfig.set(guild.id, { ...localConfig.get(guild.id), log_channel: logChan.id });
-                return quickEmbed('📁 Logs Configured', `Logs will be sent to ${logChan}`, '#3498db');
+                return directReply(EMOJIS.check, `emoji nuevo logs set to ${logChan}`, '#3498db');
 
             case 'ban':
                 const bUser = options.getUser('user');
-                const bMember = await guild.members.fetch(bUser.id).catch(() => null);
-                if (!isOwner && bMember && bMember.roles.highest.position >= member.roles.highest.position) {
-                    return quickEmbed('❌ Hierarchy Error', 'You cannot ban a user with an equal or higher role.', '#ff0000');
-                }
-                const bReason = options.getString('reason') || 'No reason provided';
-                await guild.members.ban(bUser, { reason: bReason });
-                return quickEmbed('🔨 Ban Applied', `**Target:** ${bUser.tag}\n**Reason:** ${bReason}`, '#ff0000', true);
+                await guild.members.ban(bUser, { reason: options.getString('reason') || 'No reason' });
+                return directReply(EMOJIS.bankick, `Banned ${bUser.tag}.`, '#ff0000', true);
 
             case 'unban':
-                const uId = options.getString('user_id');
-                await guild.members.unban(uId);
-                return quickEmbed('🔓 Unbanned', `ID \`${uId}\` has been unbanned.`, '#2ecc71', true);
+                await guild.members.unban(options.getString('user_id'));
+                return directReply(EMOJIS.check, 'ID unbanned.', '#2ecc71', true);
 
             case 'kick':
                 const kMember = options.getMember('user');
-                if (!kMember || !kMember.kickable) throw new Error('Cannot kick this user.');
-                if (!isOwner && kMember.roles.highest.position >= member.roles.highest.position) {
-                    return quickEmbed('❌ Hierarchy Error', 'You cannot kick a user with an equal or higher role.', '#ff0000');
-                }
-                const kReason = options.getString('reason') || 'No reason provided';
-                await kMember.kick(kReason);
-                return quickEmbed('🚀 Kicked', `User **${kMember.user.tag}** removed.\n**Reason:** ${kReason}`, '#e67e22', true);
+                await kMember.kick();
+                return directReply(EMOJIS.bankick, `Kicked ${kMember.user.tag}.`, '#e67e22', true);
 
             case 'warn':
                 const wUser = options.getUser('user');
-                const wMember = await guild.members.fetch(wUser.id).catch(() => null);
-                if (!isOwner && wMember && wMember.roles.highest.position >= member.roles.highest.position) {
-                    return quickEmbed('❌ Hierarchy Error', 'You cannot warn a user with an equal or higher role.', '#ff0000');
-                }
                 const warns = localWarns.get(wUser.id) || [];
-                const wReason = options.getString('reason') || 'No reason provided';
-                warns.push({ date: new Date().toLocaleDateString(), reason: wReason });
+                warns.push({ date: new Date().toLocaleDateString(), reason: options.getString('reason') });
                 localWarns.set(wUser.id, warns);
-                return quickEmbed('⚠️ Warning Issued', `**Target:** ${wUser}\n**Reason:** ${wReason}\n**Total Warns:** ${warns.length}`, '#f1c40f', true);
+                return directReply(EMOJIS.warn, `Warned ${wUser.tag} (${warns.length}).`, '#f1c40f', true);
 
             case 'infractions':
-                const iUser = options.getUser('user');
-                const iHistory = localWarns.get(iUser.id) || [];
-                const iList = iHistory.map((w, i) => `**${i+1}.** [${w.date}] ${w.reason}`).join('\n') || 'No infractions found.';
-                return quickEmbed(`Infractions: ${iUser.tag}`, iList, '#3498db');
+                const iHistory = localWarns.get(options.getUser('user').id) || [];
+                return interaction.editReply({ content: `Total infractions: ${iHistory.length}` });
 
             case 'timeout':
-                const tMember = options.getMember('user');
-                if (!tMember || !tMember.manageable) throw new Error('Cannot mute this user.');
-                if (!isOwner && tMember.roles.highest.position >= member.roles.highest.position) {
-                    return quickEmbed('❌ Hierarchy Error', 'You cannot mute a user with an equal or higher role.', '#ff0000');
-                }
                 const tMin = options.getInteger('minutes');
-                const tReason = options.getString('reason') || 'No reason provided';
-                await tMember.timeout(tMin * 60000, tReason);
-                return quickEmbed('⏳ Timeout', `${tMember.user.tag} muted for ${tMin}m.\n**Reason:** ${tReason}`, '#e67e22', true);
+                await options.getMember('user').timeout(tMin * 60000);
+                return directReply(EMOJIS.timeout, `Muted for ${tMin}m.`, '#e67e22', true);
 
             case 'unmute':
-                const umMember = options.getMember('user');
-                if (!isOwner && umMember && umMember.roles.highest.position >= member.roles.highest.position) {
-                    return quickEmbed('❌ Hierarchy Error', 'You cannot unmute a user with an equal or higher role.', '#ff0000');
-                }
-                await umMember?.timeout(null);
-                return quickEmbed('🔊 Unmuted', `${umMember?.user.tag} access restored.`, '#2ecc71', true);
+                await options.getMember('user').timeout(null);
+                return directReply(EMOJIS.check, 'Mute removed.', '#2ecc71', true);
 
             case 'lock':
             case 'unlock':
                 const isLock = commandName === 'lock';
-                await channel.permissionOverwrites.edit(guild.roles.everyone, {
-                    SendMessages: !isLock,
-                    AddReactions: !isLock,
-                    CreatePublicThreads: !isLock,
-                    CreatePrivateThreads: !isLock,
-                    SendMessagesInThreads: !isLock,
-                    UseExternalEmojis: !isLock,
-                    UseExternalStickers: !isLock
-                });
-                return quickEmbed(isLock ? '🔐 Channel Locked' : '🔓 Channel Unlocked', isLock ? 'Full restriction applied (Read-only).' : 'Interactions restored.', isLock ? '#ff0000' : '#2ecc71', true);
+                await channel.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: !isLock });
+                return directReply(isLock ? EMOJIS.bankick : EMOJIS.check, `Channel ${isLock ? 'Locked' : 'Unlocked'}.`, isLock ? '#ff0000' : '#2ecc71', true);
 
             case 'audit':
                 const aTarget = options.getMember('user');
-                if (!aTarget) throw new Error('User not found.');
-                const accountAgeDays = Math.floor((Date.now() - aTarget.user.createdTimestamp) / 86400000);
-                const joinedServerDays = Math.floor((Date.now() - aTarget.joinedTimestamp) / 86400000);
-                const joinedDiscordStr = accountAgeDays > 365 ? `${Math.floor(accountAgeDays / 365)} years ago` : `${accountAgeDays} days ago`;
-                const joinedServerStr = joinedServerDays < 1 ? "today" : (joinedServerDays > 30 ? `${Math.floor(joinedServerDays / 30)} months ago` : `${joinedServerDays} days ago`);
-
-                const auditEmbed = new EmbedBuilder()
-                    .setAuthor({ name: `Audit Report: ${aTarget.user.username}`, iconURL: aTarget.user.displayAvatarURL() })
-                    .setThumbnail('https://i.imgur.com/8Nf9yUn.png') 
-                    .setColor(accountAgeDays > 30 ? '#2ecc71' : '#ff0000')
-                    .addFields(
-                        { name: '🆔 User ID', value: `**${aTarget.user.id}**` },
-                        { name: '🔝 Highest Role', value: `${aTarget.roles.highest}` },
-                        { name: '🛡️ Admin Perms', value: `**${aTarget.permissions.has(PermissionFlagsBits.Administrator) ? 'Yes' : 'No'}**` },
-                        { name: '📅 Joined Discord', value: `**${joinedDiscordStr}**` },
-                        { name: '📥 Joined Server', value: `**${joinedServerStr}**` },
-                        { name: '⚖️ Security Status', value: accountAgeDays > 30 ? '✅ **SAFE**' : '⚠️ **SUSPICIOUS**' }
-                    ).setFooter({ text: `Account Age: ${accountAgeDays} days` });
+                const auditEmbed = new EmbedBuilder().setTitle(`Audit: ${aTarget.user.tag}`).setDescription(`ID: ${aTarget.id}\nJoined: ${aTarget.joinedAt.toLocaleDateString()}`).setColor('#2ecc71');
                 return interaction.editReply({ embeds: [auditEmbed] });
 
             case 'role-give':
+                await options.getMember('user').roles.add(options.getRole('role'));
+                return directReply(EMOJIS.check, 'Role added.', '#3498db', true);
+
             case 'role-take':
-                const rgMember = options.getMember('user');
-                const rgRole = options.getRole('role');
-                if (!isOwner) {
-                    if (rgMember.roles.highest.position >= member.roles.highest.position) {
-                        return quickEmbed('❌ Hierarchy Error', 'You cannot modify roles of a user with an equal or higher role.', '#ff0000');
-                    }
-                    if (rgRole.position >= member.roles.highest.position) {
-                        return quickEmbed('❌ Hierarchy Error', 'You cannot manage a role that is equal or higher than yours.', '#ff0000');
-                    }
-                }
-                commandName === 'role-give' ? await rgMember.roles.add(rgRole) : await rgMember.roles.remove(rgRole);
-                return quickEmbed('🎭 Role Updated', `Target: ${rgMember.user.tag}`, '#3498db', true);
+                await options.getMember('user').roles.remove(options.getRole('role'));
+                return directReply(EMOJIS.check, 'Role removed.', '#3498db', true);
 
             case 'create-channel':
-                const cType = options.getString('type') === 'text' ? ChannelType.GuildText : ChannelType.GuildVoice;
-                const newChan = await guild.channels.create({ name: options.getString('name'), type: cType });
-                return quickEmbed('✨ Channel Created', `New channel: ${newChan}`, '#2ecc71', true);
+                const newChan = await guild.channels.create({ name: options.getString('name'), type: options.getString('type') === 'text' ? ChannelType.GuildText : ChannelType.GuildVoice });
+                return directReply(EMOJIS.check, `Channel ${newChan} created.`, '#2ecc71', true);
 
             case 'color':
-                const cHex = options.getString('input');
-                return quickEmbed('🎨 Color Info', `Color: **${cHex}**`, cHex.startsWith('#') ? cHex : '#ffffff');
+                return directReply('🎨', `Hex: ${options.getString('input')}`);
 
             case 'echo':
                 await channel.send(options.getString('text'));
-                return interaction.editReply({ content: 'Message sent.' });
+                return interaction.editReply({ content: 'Done.' });
 
             case 'flip':
-                return quickEmbed('🪙 Coin Flip', `Result: **${Math.random() > 0.5 ? 'Heads' : 'Tails'}**`, '#f1c40f');
+                return directReply('🪙', Math.random() > 0.5 ? 'Heads' : 'Tails');
 
             case 'embed':
-                const customEmbed = new EmbedBuilder().setDescription(options.getString('description')).setColor(options.getString('color') || '#ffffff');
-                if (options.getString('title')) customEmbed.setTitle(options.getString('title'));
-                return interaction.editReply({ embeds: [customEmbed] });
+                return interaction.editReply({ embeds: [new EmbedBuilder().setDescription(options.getString('description')).setColor(options.getString('color') || '#ffffff')] });
 
             default:
-                return quickEmbed('❓ Unknown', 'Command not found.', '#7289da');
+                return directReply(EMOJIS.error, 'Unknown command.');
         }
     } catch (err) {
-        console.error(err);
-        return quickEmbed('❌ System Error', `Failed: \`${err.message}\``, '#ff0000');
+        return directReply(EMOJIS.error, `Error: ${err.message}`);
     }
 });
-
-process.on('unhandledRejection', r => console.error('🛡️ Rejection:', r));
-process.on('uncaughtException', e => console.error('🛡️ Exception:', e));
 
 client.login(TOKEN);
