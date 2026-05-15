@@ -23,6 +23,102 @@ const blacklistedUsers = new Set();
 const forbiddenWords = new Map();
 const linkWhitelist = new Map();
 
+// ========== NUEVO: SISTEMA DE CASTIGOS PROGRESIVOS ==========
+const userStrikes = new Map(); // key: `${guildId}-${userId}`, value: array of timestamps (ms)
+const STRIKE_DECAY_MS = 24 * 60 * 60 * 1000; // 24 horas
+
+// Función para obtener el número de strikes válidos (últimas 24h) y limpiar los antiguos
+function getValidStrikes(guildId, userId) {
+    const key = `${guildId}-${userId}`;
+    const strikes = userStrikes.get(key) || [];
+    const now = Date.now();
+    const validStrikes = strikes.filter(ts => now - ts < STRIKE_DECAY_MS);
+    if (validStrikes.length !== strikes.length) {
+        userStrikes.set(key, validStrikes);
+    }
+    return validStrikes;
+}
+
+function addStrike(guildId, userId) {
+    const key = `${guildId}-${userId}`;
+    const strikes = userStrikes.get(key) || [];
+    strikes.push(Date.now());
+    userStrikes.set(key, strikes);
+    return strikes.length;
+}
+
+async function applyProgressivePunishment(guild, user, moduleName, message = null, content = "N/A") {
+    const config = localConfig.get(guild.id) || {};
+    if (!config.progressive_enabled) return false;
+
+    // Añadir strike y contar los activos
+    addStrike(guild.id, user.id);
+    const validStrikes = getValidStrikes(guild.id, user.id);
+    const strikeCount = validStrikes.length;
+
+    let action = null;
+    let duration = null;
+    let warnReason = null;
+
+    // Determinar acción según el número de strikes
+    if (strikeCount === 1) {
+        action = "delete";
+    } else if (strikeCount === 2) {
+        action = "warn";
+        warnReason = `AutoMod - ${moduleName} (2nd strike)`;
+    } else if (strikeCount === 3) {
+        action = "timeout";
+        duration = 5 * 60 * 1000; // 5 minutos
+        warnReason = `AutoMod - ${moduleName} (3rd strike, 5min timeout)`;
+    } else {
+        action = "timeout";
+        // Aumentar progresivamente: 10, 20, 40 minutos... (máximo 1 hora)
+        let multiplier = Math.pow(2, strikeCount - 3);
+        duration = Math.min(5 * 60 * 1000 * multiplier, 60 * 60 * 1000);
+        warnReason = `AutoMod - ${moduleName} (${strikeCount}th strike, ${duration/60000}min timeout)`;
+    }
+
+    // Ejecutar la acción
+    let executed = false;
+    let reasonText = "";
+
+    try {
+        if (action === "delete" && message) {
+            await message.delete().catch(() => null);
+            reasonText = `Message deleted (1st strike)`;
+            executed = true;
+        } 
+        else if (action === "warn") {
+            // Añadir warn al sistema localWarns
+            const warns = localWarns.get(user.id) || [];
+            warns.push({ date: new Date().toLocaleDateString(), reason: warnReason });
+            localWarns.set(user.id, warns);
+            reasonText = `Warning issued: ${warnReason}`;
+            executed = true;
+            if (message) await message.delete().catch(() => null);
+        }
+        else if (action === "timeout") {
+            const member = await guild.members.fetch(user.id).catch(() => null);
+            if (member && member.manageable) {
+                await member.timeout(duration, warnReason);
+                reasonText = `Timed out for ${duration/60000} minutes: ${warnReason}`;
+                executed = true;
+                if (message) await message.delete().catch(() => null);
+            } else {
+                reasonText = `Failed to timeout user (missing permissions or not found)`;
+            }
+        }
+    } catch (err) {
+        reasonText = `Error applying punishment: ${err.message}`;
+        console.error(err);
+    }
+
+    // Enviar log detallado
+    sendAutoModLog(guild, user, `Progressive (${moduleName}) - Strike ${strikeCount}`, reasonText, content, '#ff6600');
+    return executed;
+}
+// ============================================================
+
 const normalize = (text) => {
     return text.toLowerCase()
         .normalize("NFD")
@@ -257,6 +353,14 @@ client.once(Events.ClientReady, async () => {
         {
             name: 'mod-status',
             description: 'View the status of all auto-moderation modules'
+        },
+        // ========== NUEVO COMANDO PROGRESSIVE PUNISHMENT ==========
+        {
+            name: 'setup-progressive',
+            description: 'Enable/Disable progressive punishment system (strikes with decay)',
+            options: [
+                { name: 'enabled', type: 5, description: 'True to enable, False to disable', required: true }
+            ]
         }
     ];
 
@@ -305,16 +409,27 @@ client.on(Events.MessageCreate, async (message) => {
 
     if (isAdmin || isImmuneRole || isAdminRole) return;
 
+    // ========== INTEGRACIÓN DE CASTIGOS PROGRESIVOS ==========
+    const progressiveEnabled = config.progressive_enabled || false;
+
+    // --- ANTI-FLOOD ---
     if (config.flood_enabled) {
         const userFlood = floodMap.get(message.author.id) || { lastContent: "", count: 0 };
         if (message.content === userFlood.lastContent && message.content.length > 2) {
             userFlood.count++;
             if (userFlood.count >= (config.flood_max || 3)) {
                 userFlood.count = 0;
-                await message.delete().catch(() => null);
-                await message.member.timeout(300000, 'Anti-Flood: Repetitive messages');
-                sendAutoModLog(message.guild, message.author, 'Anti-Flood', 'Repetitive messages (Flood)', message.content);
-                return message.channel.send(`<:bankick_icon1:1504606705596498032> ${message.author}, stop flooding with the same message.`);
+                if (progressiveEnabled) {
+                    // Usar sistema progresivo
+                    await applyProgressivePunishment(message.guild, message.author, "Anti-Flood", message, message.content);
+                    return message.channel.send(`<:bankick_icon1:1504606705596498032> ${message.author}, you have been penalized for flooding.`).then(m => setTimeout(() => m.delete(), 5000)).catch(() => null);
+                } else {
+                    // Código original
+                    await message.delete().catch(() => null);
+                    await message.member.timeout(300000, 'Anti-Flood: Repetitive messages');
+                    sendAutoModLog(message.guild, message.author, 'Anti-Flood', 'Repetitive messages (Flood)', message.content);
+                    return message.channel.send(`<:bankick_icon1:1504606705596498032> ${message.author}, stop flooding with the same message.`);
+                }
             }
         } else {
             userFlood.lastContent = message.content;
@@ -323,6 +438,7 @@ client.on(Events.MessageCreate, async (message) => {
         floodMap.set(message.author.id, userFlood);
     }
 
+    // --- ANTI-LINKS ---
     if (config.antilinks_enabled) {
         const linkRegExp = /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi;
         if (linkRegExp.test(message.content)) {
@@ -339,14 +455,20 @@ client.on(Events.MessageCreate, async (message) => {
             }
 
             if (shouldDelete) {
-                await message.delete().catch(() => null);
-                sendAutoModLog(message.guild, message.author, 'Anti-Link', 'Unauthorized link posted.', message.content);
-                return message.channel.send(`<:bankick_icon1:1504606705596498032> ${message.author}, links are not allowed here.`)
-                    .then(m => setTimeout(() => m.delete(), 3000));
+                if (progressiveEnabled) {
+                    await applyProgressivePunishment(message.guild, message.author, "Anti-Link", message, message.content);
+                    return message.channel.send(`<:bankick_icon1:1504606705596498032> ${message.author}, links are not allowed here.`).then(m => setTimeout(() => m.delete(), 3000)).catch(() => null);
+                } else {
+                    await message.delete().catch(() => null);
+                    sendAutoModLog(message.guild, message.author, 'Anti-Link', 'Unauthorized link posted.', message.content);
+                    return message.channel.send(`<:bankick_icon1:1504606705596498032> ${message.author}, links are not allowed here.`)
+                        .then(m => setTimeout(() => m.delete(), 3000));
+                }
             }
         }
     }
 
+    // --- BADWORDS (WORD FILTER) ---
     const serverWordsMap = forbiddenWords.get(message.guild.id);
     if (serverWordsMap && serverWordsMap.size > 0) {
         const messageWords = normalize(message.content);
@@ -365,13 +487,19 @@ client.on(Events.MessageCreate, async (message) => {
         }
 
         if (detected) {
-            await message.delete().catch(() => null);
-            sendAutoModLog(message.guild, message.author, 'Word Filter', `Restricted word detected: ${detectedWord}`, message.content, '#ff4444');
-            return message.channel.send(`<:warn_icon1:1504605302878769272> ${message.author}, that word is restricted here.`)
-                .then(m => setTimeout(() => m.delete(), 3000));
+            if (progressiveEnabled) {
+                await applyProgressivePunishment(message.guild, message.author, `Word Filter (${detectedWord})`, message, message.content);
+                return message.channel.send(`<:warn_icon1:1504605302878769272> ${message.author}, that word is restricted here.`).then(m => setTimeout(() => m.delete(), 3000)).catch(() => null);
+            } else {
+                await message.delete().catch(() => null);
+                sendAutoModLog(message.guild, message.author, 'Word Filter', `Restricted word detected: ${detectedWord}`, message.content, '#ff4444');
+                return message.channel.send(`<:warn_icon1:1504605302878769272> ${message.author}, that word is restricted here.`)
+                    .then(m => setTimeout(() => m.delete(), 3000));
+            }
         }
     }
 
+    // --- ANTI-SPAM ---
     const now = Date.now();
     const windowMs = (config.spam_seconds || 5) * 1000;
     const limit = config.spam_limit || 5;
@@ -387,13 +515,24 @@ client.on(Events.MessageCreate, async (message) => {
 
     if (userData.count >= limit) {
         userData.count = 0;
-        try {
-            const msgs = await message.channel.messages.fetch({ limit: 15 });
-            await message.channel.bulkDelete(msgs.filter(m => m.author.id === message.author.id), true);
-            await message.member.timeout(600000, 'Anti-Spam Triggered');
-            sendAutoModLog(message.guild, message.author, 'Anti-Spam', `Sent ${limit} messages too quickly.`, 'N/A');
-            message.channel.send(`<:bankick_icon1:1504606705596498032> **Warden:** ${message.author} muted for spamming.`);
-        } catch (err) { console.error('Anti-spam error ignored.'); }
+        if (progressiveEnabled) {
+            await applyProgressivePunishment(message.guild, message.author, "Anti-Spam", message, `Spammed ${limit} messages in ${config.spam_seconds}s`);
+            // Opcional: también borrar los mensajes del usuario en el canal (similar a la acción original)
+            try {
+                const msgs = await message.channel.messages.fetch({ limit: 15 });
+                const userMsgs = msgs.filter(m => m.author.id === message.author.id);
+                if (userMsgs.size > 0) await message.channel.bulkDelete(userMsgs, true).catch(() => null);
+            } catch (err) { console.error('Error deleting spam messages:', err); }
+            return message.channel.send(`<:bankick_icon1:1504606705596498032> **Warden:** ${message.author} has been penalized for spamming.`).then(m => setTimeout(() => m.delete(), 5000)).catch(() => null);
+        } else {
+            try {
+                const msgs = await message.channel.messages.fetch({ limit: 15 });
+                await message.channel.bulkDelete(msgs.filter(m => m.author.id === message.author.id), true);
+                await message.member.timeout(600000, 'Anti-Spam Triggered');
+                sendAutoModLog(message.guild, message.author, 'Anti-Spam', `Sent ${limit} messages too quickly.`, 'N/A');
+                message.channel.send(`<:bankick_icon1:1504606705596498032> **Warden:** ${message.author} muted for spamming.`);
+            } catch (err) { console.error('Anti-spam error ignored.'); }
+        }
     }
 });
 
@@ -527,41 +666,45 @@ client.on(Events.InteractionCreate, async interaction => {
     // --- NUEVO COMANDO MOD-STATUS ---
     if (commandName === 'mod-status') {
         const config = localConfig.get(guild.id) || {};
-        
+
         // Anti-Spam
         const spamLimit = config.spam_limit || 5;
         const spamSeconds = config.spam_seconds || 5;
         const spamStatus = (spamLimit && spamSeconds) ? '🟢' : '🔴';
-        
+
         // Anti-Flood
         const floodEnabled = config.flood_enabled || false;
         const floodMax = config.flood_max || 3;
         const floodStatus = floodEnabled ? '🟢' : '🔴';
-        
+
         // Anti-Links
         const antilinksEnabled = config.antilinks_enabled || false;
         const antilinksStatus = antilinksEnabled ? '🟢' : '🔴';
-        
+
         // Anti-Alt
         const antiAltEnabled = config.anti_alt_enabled || false;
         const antiAltMinDays = config.anti_alt_min_days || 7;
         const antiAltStatus = antiAltEnabled ? '🟢' : '🔴';
-        
+
         // Word Filter
         const wordsMap = forbiddenWords.get(guild.id) || new Map();
         const wordCount = wordsMap.size;
         const wordStatus = wordCount > 0 ? '🟢' : '🔴';
-        
+
         // Slowmode (canal actual)
         const currentSlowmode = channel.rateLimitPerUser || 0;
         const slowmodeStatus = currentSlowmode > 0 ? `🟢 (${currentSlowmode}s)` : '🔴 (0s)';
-        
+
+        // Progressive Punishment
+        const progressiveEnabled = config.progressive_enabled || false;
+        const progressiveStatus = progressiveEnabled ? '🟢 (Active)' : '🔴 (Inactive)';
+
         // Configuración adicional
         const adminRoleId = config.admin_role_id;
         const adminRole = adminRoleId ? guild.roles.cache.get(adminRoleId)?.name || 'Unknown' : 'Not set';
         const logChannelId = config.log_channel;
         const logChannelStatus = logChannelId ? `<#${logChannelId}>` : 'Not set';
-        
+
         const embed = new EmbedBuilder()
             .setTitle('🛡️ Warden Auto-Moderation Status')
             .setColor('#2ecc71')
@@ -573,13 +716,30 @@ client.on(Events.InteractionCreate, async interaction => {
                 { name: '🆕 Anti-Alt', value: `${antiAltStatus} ${antiAltEnabled ? `${antiAltMinDays} days min` : 'Disabled'}`, inline: true },
                 { name: '📝 Word Filter', value: `${wordStatus} **${wordCount}** blocked words`, inline: true },
                 { name: '⏱️ Slowmode (this channel)', value: slowmodeStatus, inline: true },
+                { name: '⚙️ Progressive Punishment', value: progressiveStatus, inline: true },
                 { name: '👑 Admin Role', value: adminRole, inline: true },
                 { name: '📋 Log Channel', value: logChannelStatus, inline: true }
             )
             .setFooter({ text: `Server: ${guild.name}` })
             .setTimestamp();
-        
+
         return interaction.editReply({ embeds: [embed] });
+    }
+
+    // --- NUEVO COMANDO SETUP-PROGRESSIVE ---
+    if (commandName === 'setup-progressive') {
+        const config = localConfig.get(guild.id) || {};
+        const hasAuth = isOwner || member.permissions.has(PermissionFlagsBits.ManageGuild) || (config && member.roles.cache.has(config.admin_role_id));
+        if (!hasAuth) return quickEmbed('<:error_icon1:1504603932058714123> Requires Manage Server permissions.', '#ff0000');
+
+        const enabled = options.getBoolean('enabled');
+        localConfig.set(guild.id, { ...config, progressive_enabled: enabled });
+        return quickEmbed(
+            `<:check_icon1:1504601887247171605> **Progressive Punishment System**\n` +
+            `Now **${enabled ? 'Enabled' : 'Disabled'}**\n` +
+            `(Strikes decay after 24h: 1st → delete, 2nd → warn, 3rd → 5min timeout, 4th+ → increasing timeouts)`,
+            enabled ? '#2ecc71' : '#e74c3c', true
+        );
     }
 
     // --- MASTER COMMAND: EVAL ---
