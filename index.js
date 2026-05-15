@@ -47,6 +47,7 @@ const sendAutoModLog = (guild, user, action, reason, content, color = '#ff9900')
             .setTitle(`Auto-Mod | ${action}`)
             .setDescription(`**Usuario:** ${user.tag} (${user.id})\n**Razón:** ${reason}\n**Contenido:** \`\`\`${content.substring(0, 500) || "N/A"}\`\`\``)
             .setColor(color)
+            .setFooter({ text: `User ID: ${user.id}` })
             .setTimestamp();
         logChannel.send({ embeds: [logEmbed] }).catch(() => null);
     }
@@ -329,7 +330,9 @@ client.on(Events.InteractionCreate, async interaction => {
         if (logChannel) {
             const logEmbed = new EmbedBuilder()
                 .setDescription(`${desc}\n\n**Mod:** ${member.user.tag}\n**Canal:** ${channel}`)
-                .setColor(color).setTimestamp();
+                .setColor(color)
+                .setFooter({ text: `Mod ID: ${member.user.id}` })
+                .setTimestamp();
             logChannel.send({ embeds: [logEmbed] }).catch(() => null);
         }
     };
@@ -337,7 +340,7 @@ client.on(Events.InteractionCreate, async interaction => {
     const quickEmbed = (desc, color = '#ffffff', logIt = false) => {
         if (logIt) sendGlobalLog(desc, color);
         return interaction.editReply({ 
-            embeds: [new EmbedBuilder().setDescription(desc).setColor(color).setTimestamp()] 
+            embeds: [new EmbedBuilder().setDescription(desc).setColor(color)] 
         }).catch(() => null);
     };
 
@@ -354,20 +357,20 @@ client.on(Events.InteractionCreate, async interaction => {
             const level = options.getInteger('level');
             currentWordsMap.set(word, level);
             forbiddenWords.set(guild.id, currentWordsMap);
-            return quickEmbed(`<:bankick_icon1:1504606705596498032> The word \`${word}\` added with **Level ${level}**.`, '#2ecc71', true);
+            return quickEmbed(`<:bankick_icon1:1504606705596498032> **Word Filter Updated** — \`${word}\` blocked at **Level ${level}**.`, '#2ecc71', true);
         }
         if (commandName === 'badwords-remove') {
             const word = options.getString('word').toLowerCase();
             if (currentWordsMap.delete(word)) {
                 forbiddenWords.set(guild.id, currentWordsMap);
-                return quickEmbed(`<:check_icon1:1504601887247171605> The word \`${word}\` is no longer blocked.`, '#3498db', true);
+                return quickEmbed(`<:check_icon1:1504601887247171605> **Word Filter Updated** — \`${word}\` is no longer blocked.`, '#3498db', true);
             }
             return quickEmbed('<:error_icon1:1504603932058714123> That word was not in the list.', '#ff0000');
         }
         if (commandName === 'badwords-list') {
             const list = Array.from(currentWordsMap.entries())
                 .map(([w, l]) => `• \`${w}\` (Lvl ${l})`).join('\n') || 'No blocked words found.';
-            return quickEmbed(list, '#f1c40f');
+            return quickEmbed(`**Word Filter List**\n\n${list}`, '#f1c40f');
         }
     }
 
@@ -381,13 +384,13 @@ client.on(Events.InteractionCreate, async interaction => {
             const isEnabled = options.getBoolean('enabled');
             const maxDup = options.getInteger('max_duplicates');
             localConfig.set(guild.id, { ...localConfig.get(guild.id), flood_enabled: isEnabled, flood_max: maxDup });
-            return quickEmbed(`**Anti-Flood:** ${isEnabled ? 'Enabled' : 'Disabled'}\n**Limit:** ${maxDup} repeated messages.`, isEnabled ? '#2ecc71' : '#e74c3c', true);
+            return quickEmbed(`<:check_icon1:1504601887247171605> **Anti-Flood Updated** — ${isEnabled ? 'Enabled' : 'Disabled'}, limit: **${maxDup}** repeated messages.`, isEnabled ? '#2ecc71' : '#e74c3c', true);
         }
 
         if (commandName === 'setup-antilinks') {
             const isEnabled = options.getBoolean('enabled');
             localConfig.set(guild.id, { ...localConfig.get(guild.id), antilinks_enabled: isEnabled });
-            return quickEmbed(`The system will ${isEnabled ? 'now' : 'no longer'} filter external links.`, isEnabled ? '#2ecc71' : '#e74c3c', true);
+            return quickEmbed(`<:check_icon1:1504601887247171605> **Anti-Link Updated** — The system is now ${isEnabled ? '**enabled**' : '**disabled**'}.`, isEnabled ? '#2ecc71' : '#e74c3c', true);
         }
 
         let currentWhitelist = linkWhitelist.get(guild.id) || new Set();
@@ -396,19 +399,19 @@ client.on(Events.InteractionCreate, async interaction => {
             const domain = options.getString('domain').toLowerCase().replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0];
             currentWhitelist.add(domain);
             linkWhitelist.set(guild.id, currentWhitelist);
-            return quickEmbed(`Domain \`${domain}\` is now allowed.`, '#2ecc71', true);
+            return quickEmbed(`<:check_icon1:1504601887247171605> **Link Whitelist Updated** — \`${domain}\` is now allowed.`, '#2ecc71', true);
         }
         if (commandName === 'link-whitelist-remove') {
             const domain = options.getString('domain').toLowerCase();
             if (currentWhitelist.delete(domain)) {
                 linkWhitelist.set(guild.id, currentWhitelist);
-                return quickEmbed(`Domain \`${domain}\` removed from whitelist.`, '#e74c3c', true);
+                return quickEmbed(`<:check_icon1:1504601887247171605> **Link Whitelist Updated** — \`${domain}\` removed.`, '#e74c3c', true);
             }
             return quickEmbed('<:error_icon1:1504603932058714123> Domain not found in whitelist.', '#ff0000');
         }
         if (commandName === 'link-whitelist-list') {
             const list = Array.from(currentWhitelist).map(d => `• \`${d}\``).join('\n') || 'No domains whitelisted.';
-            return quickEmbed(list, '#3498db');
+            return quickEmbed(`**Link Whitelist**\n\n${list}`, '#3498db');
         }
     }
 
@@ -428,8 +431,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
             const evalEmbed = new EmbedBuilder()
                 .setDescription(`**Input:**\n\`\`\`js\n${code}\n\`\`\`\n**Output:**\n\`\`\`js\n${evalued.substring(0, 1014)}\n\`\`\``)
-                .setColor('#2ecc71')
-                .setTimestamp();
+                .setColor('#2ecc71');
 
             return interaction.editReply({ embeds: [evalEmbed] });
         } catch (e) {
@@ -447,10 +449,10 @@ client.on(Events.InteractionCreate, async interaction => {
         if (action === 'add') {
             if (target.id === OWNER_ID) return quickEmbed('<:error_icon1:1504603932058714123> You cannot blacklist yourself.', '#ff0000');
             blacklistedUsers.add(target.id);
-            return quickEmbed(`<:bankick_icon1:1504606705596498032> **${target.tag}** has been blacklisted.\n**Reason:** ${reason}`, '#000000');
+            return quickEmbed(`<:bankick_icon1:1504606705596498032> **Global Blacklist** — **${target.tag}** has been blacklisted.\n**Reason:** ${reason}`, '#000000');
         } else {
             blacklistedUsers.delete(target.id);
-            return quickEmbed(`<:check_icon1:1504601887247171605> **${target.tag}** is no longer blacklisted.`, '#2ecc71');
+            return quickEmbed(`<:check_icon1:1504601887247171605> **Global Blacklist** — **${target.tag}** is no longer blacklisted.`, '#2ecc71');
         }
     }
 
@@ -466,12 +468,16 @@ client.on(Events.InteractionCreate, async interaction => {
             const targetChannel = g.channels.cache.get(conf?.log_channel) || g.channels.cache.find(c => c.type === ChannelType.GuildText && c.permissionsFor(g.members.me).has(PermissionFlagsBits.SendMessages));
 
             if (targetChannel) {
-                const bEmbed = new EmbedBuilder().setDescription(`**${bTitle}**\n\n${bMsg}`).setColor('#f1c40f').setFooter({ text: 'Broadcast sent by System Owner' }).setTimestamp();
+                const bEmbed = new EmbedBuilder()
+                    .setDescription(`**${bTitle}**\n\n${bMsg}`)
+                    .setColor('#f1c40f')
+                    .setFooter({ text: 'Broadcast by System Owner' })
+                    .setTimestamp();
                 targetChannel.send({ embeds: [bEmbed] }).catch(() => null);
                 successCount++;
             }
         });
-        return quickEmbed(`<:check_icon1:1504601887247171605> Announcement delivered to **${successCount}** servers.`, '#2ecc71');
+        return quickEmbed(`<:check_icon1:1504601887247171605> **Broadcast Sent** — Delivered to **${successCount}** servers.`, '#2ecc71');
     }
 
     const config = localConfig.get(guild.id);
@@ -487,7 +493,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 const seconds = options.getInteger('seconds');
                 const sReason = options.getString('reason') || 'No reason provided';
                 await channel.setRateLimitPerUser(seconds, sReason);
-                return quickEmbed(`<:timeout_icon1:1504605891087958147> Slowmode set to **${seconds}** seconds.\n**Reason:** ${sReason}`, '#3498db', true);
+                return quickEmbed(`<:timeout_icon1:1504605891087958147> **Slowmode Updated** — Set to **${seconds}** seconds.\n**Reason:** ${sReason}`, '#3498db', true);
 
             case 'purge':
                 const pAmount = Math.min(options.getInteger('amount'), 100);
@@ -496,21 +502,21 @@ client.on(Events.InteractionCreate, async interaction => {
                 let pToDelete = pTarget ? pFetched.filter(m => m.author.id === pTarget.id) : pFetched;
                 if (pToDelete.size === 0) throw new Error('No messages found to delete.');
                 const pDeleted = await channel.bulkDelete(pToDelete, true);
-                return quickEmbed(`<:check_icon1:1504601887247171605> Deleted **${pDeleted.size}** messages${pTarget ? ` from **${pTarget.tag}**` : ' from the channel'}.`, '#95a5a6', true);
+                return quickEmbed(`<:check_icon1:1504601887247171605> **Purge Complete** — Deleted **${pDeleted.size}** messages${pTarget ? ` from **${pTarget.tag}**` : ' from the channel'}.`, '#95a5a6', true);
 
             case 'purge-after':
                 const msgId = options.getString('message_id');
                 const paFetched = await channel.messages.fetch({ after: msgId, limit: 100 });
                 if (paFetched.size === 0) throw new Error('No messages found after this ID.');
                 const paDeleted = await channel.bulkDelete(paFetched, true);
-                return quickEmbed(`<:check_icon1:1504601887247171605> Deleted **${paDeleted.size}** messages sent after ID: \`${msgId}\`.`, '#95a5a6', true);
+                return quickEmbed(`<:check_icon1:1504601887247171605> **Purge Complete** — Deleted **${paDeleted.size}** messages after ID: \`${msgId}\`.`, '#95a5a6', true);
 
             case 'setup-antispam':
                 const saLimit = options.getInteger('limit');
                 const saSeconds = options.getInteger('seconds');
                 const saImmune = options.getRole('immune_role');
                 localConfig.set(guild.id, { ...localConfig.get(guild.id), spam_limit: saLimit, spam_seconds: saSeconds, immune_role_id: saImmune?.id || null });
-                return quickEmbed(`**Limit:** ${saLimit} msgs\n**Window:** ${saSeconds}s\n**Immune Role:** ${saImmune || 'None'}`, '#2ecc71', true);
+                return quickEmbed(`<:check_icon1:1504601887247171605> **Anti-Spam Updated** — Limit: **${saLimit}** msgs / **${saSeconds}s**\n**Immune Role:** ${saImmune || 'None'}`, '#2ecc71', true);
 
             case 'create-role':
                 const rName = options.getString('name');
@@ -526,17 +532,17 @@ client.on(Events.InteractionCreate, async interaction => {
                     default: perms = [PermissionFlagsBits.ViewChannel]; break;
                 }
                 const newRole = await guild.roles.create({ name: rName, color: rColor.startsWith('#') ? rColor : '#95a5a6', permissions: perms, hoist: hoist });
-                return quickEmbed(`<:check_icon1:1504601887247171605> Role **${newRole.name}** created.\n**Tier:** ${rLevel || 'Decoration'}\n**Color:** ${newRole.hexColor}`, newRole.hexColor, true);
+                return quickEmbed(`<:check_icon1:1504601887247171605> **Role Created** — **${newRole.name}**\n**Tier:** ${rLevel || 'Decoration'} · **Color:** ${newRole.hexColor}`, newRole.hexColor, true);
 
             case 'set-admin-role':
                 const role = options.getRole('role');
                 localConfig.set(guild.id, { ...localConfig.get(guild.id), admin_role_id: role.id });
-                return quickEmbed(`<:check_icon1:1504601887247171605> Admin role set to: **${role.name}**`, '#2ecc71');
+                return quickEmbed(`<:check_icon1:1504601887247171605> **Config Updated** — Admin role set to **${role.name}**.`, '#2ecc71');
 
             case 'set-logs':
                 const logChan = options.getChannel('channel');
                 localConfig.set(guild.id, { ...localConfig.get(guild.id), log_channel: logChan.id });
-                return quickEmbed(`<:check_icon1:1504601887247171605> Logs will be sent to ${logChan}`, '#3498db');
+                return quickEmbed(`<:check_icon1:1504601887247171605> **Config Updated** — Logs will be sent to ${logChan}.`, '#3498db');
 
             case 'ban':
                 const bUser = options.getUser('user');
@@ -546,13 +552,13 @@ client.on(Events.InteractionCreate, async interaction => {
                 }
                 const bReason = options.getString('reason') || 'No reason provided';
                 await guild.members.ban(bUser, { reason: bReason });
-                return quickEmbed(`<:bankick_icon1:1504606705596498032> **${bUser.tag}** has been banned.\n**Reason:** ${bReason}`, '#ff0000', true);
+                return quickEmbed(`<:bankick_icon1:1504606705596498032> **Ban Applied** — **${bUser.tag}** has been banned.\n**Reason:** ${bReason}`, '#ff0000', true);
 
             case 'unban':
                 const uId = options.getString('user_id');
                 const uReason = options.getString('reason') || 'No reason provided';
                 await guild.members.unban(uId, uReason);
-                return quickEmbed(`<:check_icon1:1504601887247171605> User with ID \`${uId}\` has been unbanned.\n**Reason:** ${uReason}`, '#2ecc71', true);
+                return quickEmbed(`<:check_icon1:1504601887247171605> **Unban Applied** — ID \`${uId}\` has been unbanned.\n**Reason:** ${uReason}`, '#2ecc71', true);
 
             case 'kick':
                 const kMember = options.getMember('user');
@@ -562,7 +568,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 }
                 const kReason = options.getString('reason') || 'No reason provided';
                 await kMember.kick(kReason);
-                return quickEmbed(`<:bankick_icon1:1504606705596498032> **${kMember.user.tag}** has been kicked from the server.\n**Reason:** ${kReason}`, '#e67e22', true);
+                return quickEmbed(`<:bankick_icon1:1504606705596498032> **Kick Applied** — **${kMember.user.tag}** has been kicked.\n**Reason:** ${kReason}`, '#e67e22', true);
 
             case 'warn':
                 const wUser = options.getUser('user');
@@ -574,13 +580,13 @@ client.on(Events.InteractionCreate, async interaction => {
                 const wReason = options.getString('reason') || 'No reason provided';
                 warns.push({ date: new Date().toLocaleDateString(), reason: wReason });
                 localWarns.set(wUser.id, warns);
-                return quickEmbed(`<:warn_icon1:1504605302878769272> **${wUser.tag}** has been warned.\n**Reason:** ${wReason}\n**Total Warnings:** ${warns.length}`, '#f1c40f', true);
+                return quickEmbed(`<:warn_icon1:1504605302878769272> **Warning Issued** — **${wUser.tag}** has been warned.\n**Reason:** ${wReason}\n**Total Warnings:** ${warns.length}`, '#f1c40f', true);
 
             case 'infractions':
                 const iUser = options.getUser('user');
                 const iHistory = localWarns.get(iUser.id) || [];
                 const iList = iHistory.map((w, i) => `**${i+1}.** [${w.date}] ${w.reason}`).join('\n') || 'No infractions found.';
-                return quickEmbed(`**Infraction history for ${iUser.tag}:**\n\n${iList}`, '#3498db');
+                return quickEmbed(`**Infraction History — ${iUser.tag}**\n\n${iList}`, '#3498db');
 
             case 'timeout':
                 const tMember = options.getMember('user');
@@ -591,7 +597,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 const tMin = options.getInteger('minutes');
                 const tReason = options.getString('reason') || 'No reason provided';
                 await tMember.timeout(tMin * 60000, tReason);
-                return quickEmbed(`<:timeout_icon1:1504605891087958147> **${tMember.user.tag}** has been muted for **${tMin} minute(s)**.\n**Reason:** ${tReason}`, '#e67e22', true);
+                return quickEmbed(`<:timeout_icon1:1504605891087958147> **Timeout Applied** — **${tMember.user.tag}** muted for **${tMin} minute(s)**.\n**Reason:** ${tReason}`, '#e67e22', true);
 
             case 'unmute':
                 const umMember = options.getMember('user');
@@ -600,7 +606,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 }
                 const umReason = options.getString('reason') || 'No reason provided';
                 await umMember?.timeout(null, umReason);
-                return quickEmbed(`<:check_icon1:1504601887247171605> **${umMember?.user.tag}** has been unmuted and access restored.\n**Reason:** ${umReason}`, '#2ecc71', true);
+                return quickEmbed(`<:check_icon1:1504601887247171605> **Timeout Removed** — **${umMember?.user.tag}** has been unmuted.\n**Reason:** ${umReason}`, '#2ecc71', true);
 
             case 'lock':
             case 'unlock':
@@ -617,8 +623,8 @@ client.on(Events.InteractionCreate, async interaction => {
                 });
                 return quickEmbed(
                     isLock
-                        ? `<:bankick_icon1:1504606705596498032> **${channel.name}** has been locked (Read-only).\n**Reason:** ${lockReason}`
-                        : `<:check_icon1:1504601887247171605> **${channel.name}** has been unlocked, interactions restored.\n**Reason:** ${lockReason}`,
+                        ? `<:bankick_icon1:1504606705596498032> **Channel Locked** — **${channel.name}** is now read-only.\n**Reason:** ${lockReason}`
+                        : `<:check_icon1:1504601887247171605> **Channel Unlocked** — **${channel.name}** interactions restored.\n**Reason:** ${lockReason}`,
                     isLock ? '#ff0000' : '#2ecc71', true
                 );
 
@@ -641,7 +647,9 @@ client.on(Events.InteractionCreate, async interaction => {
                         { name: 'Joined Discord', value: `**${joinedDiscordStr}**` },
                         { name: 'Joined Server', value: `**${joinedServerStr}**` },
                         { name: 'Security Status', value: accountAgeDays > 30 ? '<:check_icon1:1504601887247171605> **SAFE**' : '<:warn_icon1:1504605302878769272> **SUSPICIOUS**' }
-                    ).setFooter({ text: `Account Age: ${accountAgeDays} days` });
+                    )
+                    .setFooter({ text: `Account Age: ${accountAgeDays} days` })
+                    .setTimestamp();
                 return interaction.editReply({ embeds: [auditEmbed] });
 
             case 'role-give':
@@ -658,28 +666,29 @@ client.on(Events.InteractionCreate, async interaction => {
                 }
                 if (commandName === 'role-give') {
                     await rgMember.roles.add(rgRole);
-                    return quickEmbed(`<:check_icon1:1504601887247171605> Role **${rgRole.name}** given to **${rgMember.user.tag}**.`, '#3498db', true);
+                    return quickEmbed(`<:check_icon1:1504601887247171605> **Role Given** — **${rgRole.name}** given to **${rgMember.user.tag}**.`, '#3498db', true);
                 } else {
                     await rgMember.roles.remove(rgRole);
-                    return quickEmbed(`<:check_icon1:1504601887247171605> Role **${rgRole.name}** removed from **${rgMember.user.tag}**.`, '#3498db', true);
+                    return quickEmbed(`<:check_icon1:1504601887247171605> **Role Removed** — **${rgRole.name}** removed from **${rgMember.user.tag}**.`, '#3498db', true);
                 }
 
             case 'create-channel':
                 const cType = options.getString('type') === 'text' ? ChannelType.GuildText : ChannelType.GuildVoice;
                 const cTypeName = options.getString('type') === 'text' ? 'text' : 'voice';
                 const newChan = await guild.channels.create({ name: options.getString('name'), type: cType });
-                return quickEmbed(`<:check_icon1:1504601887247171605> New **${cTypeName}** channel created: ${newChan}`, '#2ecc71', true);
+                return quickEmbed(`<:check_icon1:1504601887247171605> **Channel Created** — New **${cTypeName}** channel: ${newChan}`, '#2ecc71', true);
 
             case 'color':
                 const cHex = options.getString('input');
-                return quickEmbed(`Color: **${cHex}**`, cHex.startsWith('#') ? cHex : '#ffffff');
+                return quickEmbed(`**Color Info** — **${cHex}**`, cHex.startsWith('#') ? cHex : '#ffffff');
 
             case 'echo':
                 await channel.send(options.getString('text'));
                 return interaction.editReply({ content: 'Message sent.' });
 
             case 'flip':
-                return quickEmbed(`Result: **${Math.random() > 0.5 ? 'Heads' : 'Tails'}**`, '#f1c40f');
+                const flipResult = Math.random() > 0.5 ? 'Heads' : 'Tails';
+                return quickEmbed(`**Coin Flip** — **${flipResult}**`, '#f1c40f');
 
             case 'embed':
                 const customEmbed = new EmbedBuilder().setDescription(options.getString('description')).setColor(options.getString('color') || '#ffffff');
