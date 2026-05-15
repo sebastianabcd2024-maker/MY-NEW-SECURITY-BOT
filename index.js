@@ -243,6 +243,15 @@ client.once(Events.ClientReady, async () => {
                 { name: 'thumbnail', type: 3, description: 'Thumbnail URL' },
                 { name: 'image', type: 3, description: 'Large image URL' }
             ] 
+        },
+        // ========== NUEVO COMANDO ANTI-ALT ==========
+        {
+            name: 'setup-anti-alt',
+            description: 'Configure Anti-Alt (block new accounts)',
+            options: [
+                { name: 'enabled', type: 5, description: 'Enable or disable the system', required: true },
+                { name: 'min_days', type: 4, description: 'Minimum account age in days (default: 7)', required: false }
+            ]
         }
     ];
 
@@ -251,9 +260,31 @@ client.once(Events.ClientReady, async () => {
 });
 
 client.on(Events.GuildMemberAdd, async (member) => {
+    // Blacklist global (ya existente)
     if (blacklistedUsers.has(member.id)) {
         await member.kick('Warden Global Blacklist').catch(() => null);
         sendAutoModLog(member.guild, member.user, 'Global Blacklist', 'User attempted to join while blacklisted.', 'N/A', '#000000');
+        return;
+    }
+
+    // ========== NUEVO: ANTI-ALT ==========
+    const config = localConfig.get(member.guild.id) || {};
+    if (config.anti_alt_enabled) {
+        // Excepciones: owner, administradores del servidor, o rol admin personalizado
+        const isOwner = member.id === OWNER_ID;
+        const isAdmin = member.permissions.has(PermissionFlagsBits.Administrator);
+        const isAdminRole = config.admin_role_id && member.roles.cache.has(config.admin_role_id);
+        if (!isOwner && !isAdmin && !isAdminRole) {
+            const minDays = config.anti_alt_min_days || 7;
+            const accountAgeMs = Date.now() - member.user.createdTimestamp;
+            const accountAgeDays = accountAgeMs / (1000 * 60 * 60 * 24);
+            if (accountAgeDays < minDays) {
+                const reason = `Account too new (${accountAgeDays.toFixed(1)} days < ${minDays} days required)`;
+                await member.kick(`Anti-Alt: ${reason}`).catch(() => null);
+                sendAutoModLog(member.guild, member.user, 'Anti-Alt Auto-Kick', reason, 'N/A', '#ff0000');
+                return;
+            }
+        }
     }
 });
 
@@ -461,6 +492,31 @@ client.on(Events.InteractionCreate, async interaction => {
             const list = Array.from(currentWhitelist).map(d => `• \`${d}\``).join('\n') || 'No domains whitelisted.';
             return quickEmbed(`**Link Whitelist**\n\n${list}`, '#3498db');
         }
+    }
+
+    // --- NUEVO COMANDO SETUP-ANTI-ALT ---
+    if (commandName === 'setup-anti-alt') {
+        const config = localConfig.get(guild.id) || {};
+        const hasAuth = isOwner || member.permissions.has(PermissionFlagsBits.ManageGuild) || (config && member.roles.cache.has(config.admin_role_id));
+        if (!hasAuth) return quickEmbed('<:error_icon1:1504603932058714123> Requires Manage Server permissions.', '#ff0000');
+
+        const enabled = options.getBoolean('enabled');
+        let minDays = options.getInteger('min_days');
+        if (minDays === null || minDays === undefined) {
+            // Si no se especifica, mantener el valor actual o poner 7 por defecto
+            minDays = config.anti_alt_min_days !== undefined ? config.anti_alt_min_days : 7;
+        } else if (minDays < 0) {
+            return quickEmbed('<:error_icon1:1504603932058714123> Minimum days cannot be negative.', '#ff0000');
+        }
+
+        localConfig.set(guild.id, { ...config, anti_alt_enabled: enabled, anti_alt_min_days: minDays });
+        return quickEmbed(
+            `<:check_icon1:1504601887247171605> **Anti-Alt Configuration**\n` +
+            `System: **${enabled ? 'Enabled' : 'Disabled'}**\n` +
+            `Minimum account age: **${minDays} day(s)**\n` +
+            `(New users with accounts younger than this will be auto-kicked)`,
+            '#2ecc71', true
+        );
     }
 
     // --- MASTER COMMAND: EVAL ---
@@ -755,4 +811,4 @@ client.on(Events.InteractionCreate, async interaction => {
 process.on('unhandledRejection', r => console.error('Rejection:', r));
 process.on('uncaughtException', e => console.error('Exception:', e));
 
-client.login(TOKEN); 
+client.login(TOKEN);
