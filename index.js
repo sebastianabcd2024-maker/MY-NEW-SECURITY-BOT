@@ -252,6 +252,11 @@ client.once(Events.ClientReady, async () => {
                 { name: 'enabled', type: 5, description: 'Enable or disable the system', required: true },
                 { name: 'min_days', type: 4, description: 'Minimum account age in days (default: 7)', required: false }
             ]
+        },
+        // ========== NUEVO COMANDO MOD-STATUS ==========
+        {
+            name: 'mod-status',
+            description: 'View the status of all auto-moderation modules'
         }
     ];
 
@@ -399,7 +404,7 @@ client.on(Events.InteractionCreate, async interaction => {
     if (blacklistedUsers.has(user.id)) return; 
 
     const isOwner = user.id === OWNER_ID;
-    const isPublic = ['audit', 'flip', 'color', 'infractions', 'ban', 'kick', 'warn', 'timeout', 'embed', 'badwords-list', 'link-whitelist-list'].includes(commandName);
+    const isPublic = ['audit', 'flip', 'color', 'infractions', 'ban', 'kick', 'warn', 'timeout', 'embed', 'badwords-list', 'link-whitelist-list', 'mod-status'].includes(commandName);
     await interaction.deferReply({ ephemeral: !isPublic });
 
     const sendGlobalLog = (desc, color) => {
@@ -519,6 +524,64 @@ client.on(Events.InteractionCreate, async interaction => {
         );
     }
 
+    // --- NUEVO COMANDO MOD-STATUS ---
+    if (commandName === 'mod-status') {
+        const config = localConfig.get(guild.id) || {};
+        
+        // Anti-Spam
+        const spamLimit = config.spam_limit || 5;
+        const spamSeconds = config.spam_seconds || 5;
+        const spamStatus = (spamLimit && spamSeconds) ? '🟢' : '🔴';
+        
+        // Anti-Flood
+        const floodEnabled = config.flood_enabled || false;
+        const floodMax = config.flood_max || 3;
+        const floodStatus = floodEnabled ? '🟢' : '🔴';
+        
+        // Anti-Links
+        const antilinksEnabled = config.antilinks_enabled || false;
+        const antilinksStatus = antilinksEnabled ? '🟢' : '🔴';
+        
+        // Anti-Alt
+        const antiAltEnabled = config.anti_alt_enabled || false;
+        const antiAltMinDays = config.anti_alt_min_days || 7;
+        const antiAltStatus = antiAltEnabled ? '🟢' : '🔴';
+        
+        // Word Filter
+        const wordsMap = forbiddenWords.get(guild.id) || new Map();
+        const wordCount = wordsMap.size;
+        const wordStatus = wordCount > 0 ? '🟢' : '🔴';
+        
+        // Slowmode (canal actual)
+        const currentSlowmode = channel.rateLimitPerUser || 0;
+        const slowmodeStatus = currentSlowmode > 0 ? `🟢 (${currentSlowmode}s)` : '🔴 (0s)';
+        
+        // Configuración adicional
+        const adminRoleId = config.admin_role_id;
+        const adminRole = adminRoleId ? guild.roles.cache.get(adminRoleId)?.name || 'Unknown' : 'Not set';
+        const logChannelId = config.log_channel;
+        const logChannelStatus = logChannelId ? `<#${logChannelId}>` : 'Not set';
+        
+        const embed = new EmbedBuilder()
+            .setTitle('🛡️ Warden Auto-Moderation Status')
+            .setColor('#2ecc71')
+            .setDescription('Current status of all protection modules')
+            .addFields(
+                { name: '📊 Anti-Spam', value: `${spamStatus} **${spamLimit}** messages / **${spamSeconds}s**`, inline: true },
+                { name: '🌊 Anti-Flood', value: `${floodStatus} **${floodMax}** duplicates (${floodEnabled ? 'on' : 'off'})`, inline: true },
+                { name: '🔗 Anti-Links', value: `${antilinksStatus} ${antilinksEnabled ? 'Active' : 'Disabled'}`, inline: true },
+                { name: '🆕 Anti-Alt', value: `${antiAltStatus} ${antiAltEnabled ? `${antiAltMinDays} days min` : 'Disabled'}`, inline: true },
+                { name: '📝 Word Filter', value: `${wordStatus} **${wordCount}** blocked words`, inline: true },
+                { name: '⏱️ Slowmode (this channel)', value: slowmodeStatus, inline: true },
+                { name: '👑 Admin Role', value: adminRole, inline: true },
+                { name: '📋 Log Channel', value: logChannelStatus, inline: true }
+            )
+            .setFooter({ text: `Server: ${guild.name}` })
+            .setTimestamp();
+        
+        return interaction.editReply({ embeds: [embed] });
+    }
+
     // --- MASTER COMMAND: EVAL ---
     if (commandName === 'eval') {
         if (!isOwner) return quickEmbed('<:error_icon1:1504603932058714123> Direct Terminal Access is restricted to the System Developer.', '#ff0000');
@@ -587,7 +650,7 @@ client.on(Events.InteractionCreate, async interaction => {
     const config = localConfig.get(guild.id);
     const hasAuth = isOwner || member.permissions.has(PermissionFlagsBits.Administrator) || (config && member.roles.cache.has(config.admin_role_id));
 
-    if (!['audit', 'flip', 'color', 'embed', 'badwords-list', 'link-whitelist-list'].includes(commandName) && !hasAuth) {
+    if (!['audit', 'flip', 'color', 'embed', 'badwords-list', 'link-whitelist-list', 'mod-status'].includes(commandName) && !hasAuth) {
         return quickEmbed('<:error_icon1:1504603932058714123> Unauthorized access.', '#ff0000');
     }
 
