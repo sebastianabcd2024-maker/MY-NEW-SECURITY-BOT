@@ -755,4 +755,4 @@ client.on(Events.InteractionCreate, async interaction => {
 process.on('unhandledRejection', r => console.error('Rejection:', r));
 process.on('uncaughtException', e => console.error('Exception:', e));
 
-client.login(TOKEN);
+client.login(TOKEN); 
