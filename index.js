@@ -23,6 +23,27 @@ const blacklistedUsers = new Set();
 const forbiddenWords = new Map();
 const linkWhitelist = new Map();
 
+// ========== NUEVO: CONTADOR DE COMANDOS ==========
+const commandStats = new Map(); // key: `${guildId}-${commandName}`, value: count
+
+function incrementCommandStat(guildId, commandName) {
+    const key = `${guildId}-${commandName}`;
+    const current = commandStats.get(key) || 0;
+    commandStats.set(key, current + 1);
+}
+
+function getCommandStats(guildId) {
+    const stats = [];
+    for (const [key, count] of commandStats.entries()) {
+        if (key.startsWith(`${guildId}-`)) {
+            const cmdName = key.split('-').slice(1).join('-');
+            stats.push({ cmdName, count });
+        }
+    }
+    return stats.sort((a, b) => b.count - a.count);
+}
+// =================================================
+
 // ========== NUEVO: SISTEMA DE CASTIGOS PROGRESIVOS ==========
 const userStrikes = new Map(); // key: `${guildId}-${userId}`, value: array of timestamps (ms)
 const STRIKE_DECAY_MS = 24 * 60 * 60 * 1000; // 24 horas
@@ -233,10 +254,15 @@ client.once(Events.ClientReady, async () => {
             options: [{ name: 'word', type: 3, description: 'Word to allow', required: true }]
         },
         { name: 'badwords-list', description: 'View the list of forbidden words' },
+        // ========== COMANDO ANTI-LINKS MEJORADO ==========
         {
             name: 'setup-antilinks',
-            description: 'Enable or disable the Anti-Link system',
-            options: [{ name: 'enabled', type: 5, description: 'True to enable, False to disable', required: true }]
+            description: 'Configure Anti-Link system with immune roles/channels',
+            options: [
+                { name: 'enabled', type: 5, description: 'Enable or disable the system', required: true },
+                { name: 'immune_role', type: 8, description: 'Role that can bypass anti-links', required: false },
+                { name: 'immune_channel', type: 7, description: 'Channel where links are allowed', required: false }
+            ]
         },
         {
             name: 'link-whitelist-add',
@@ -278,11 +304,8 @@ client.once(Events.ClientReady, async () => {
         },
         { 
             name: 'slowmode', 
-            description: 'Set channel slowmode', 
-            options: [
-                { name: 'seconds', type: 4, description: 'Seconds (0 to disable)', required: true },
-                { name: 'reason', type: 3, description: 'Reason for slowmode', required: false }
-            ] 
+            description: 'Set channel slowmode (or view current if no seconds provided)',
+            options: [{ name: 'seconds', type: 4, description: 'Seconds (0 to disable, leave empty to view)', required: false }]
         },
         { name: 'audit', description: 'User security analysis', options: [{ name: 'user', type: 6, description: 'User', required: true }] },
         { name: 'ban', description: 'Ban user', options: [{ name: 'user', type: 6, description: 'Target', required: true }, { name: 'reason', type: 3, description: 'Reason' }] },
@@ -291,7 +314,14 @@ client.once(Events.ClientReady, async () => {
         { name: 'timeout', description: 'Mute user', options: [{ name: 'user', type: 6, description: 'Target', required: true }, { name: 'minutes', type: 4, description: 'Minutes', required: true }, { name: 'reason', type: 3, description: 'Reason' }] },
         { name: 'unmute', description: 'Remove timeout', options: [{ name: 'user', type: 6, description: 'Target', required: true }, { name: 'reason', type: 3, description: 'Reason' }] },
         { name: 'warn', description: 'Issue warning', options: [{ name: 'user', type: 6, description: 'Target', required: true }, { name: 'reason', type: 3, description: 'Reason', required: true }] },
-        { name: 'infractions', description: 'View history', options: [{ name: 'user', type: 6, description: 'Target', required: true }] },
+        // ========== NUEVO: CONTADOR DE WARNS ==========
+        { name: 'warn-count', description: 'View warning count for a user', options: [{ name: 'user', type: 6, description: 'Target user', required: true }] },
+        // ========== NUEVO: ELIMINAR WARN ESPECÍFICO ==========
+        { name: 'delwarn', description: 'Remove a specific warning from a user', options: [
+            { name: 'user', type: 6, description: 'Target user', required: true },
+            { name: 'warn_number', type: 4, description: 'Warning number to remove (1 = oldest)', required: true }
+        ] },
+        { name: 'infractions', description: 'View full warning history', options: [{ name: 'user', type: 6, description: 'Target', required: true }] },
         { name: 'role-give', description: 'Add role', options: [{ name: 'user', type: 6, description: 'User', required: true }, { name: 'role', type: 8, description: 'Role', required: true }] },
         { name: 'role-take', description: 'Remove role', options: [{ name: 'user', type: 6, description: 'User', required: true }, { name: 'role', type: 8, description: 'Role', required: true }] },
         { 
@@ -361,6 +391,11 @@ client.once(Events.ClientReady, async () => {
             options: [
                 { name: 'enabled', type: 5, description: 'True to enable, False to disable', required: true }
             ]
+        },
+        // ========== NUEVO COMANDO CMD-STATS ==========
+        {
+            name: 'cmd-stats',
+            description: 'View command usage statistics for this server'
         }
     ];
 
@@ -438,31 +473,38 @@ client.on(Events.MessageCreate, async (message) => {
         floodMap.set(message.author.id, userFlood);
     }
 
-    // --- ANTI-LINKS ---
+    // --- ANTI-LINKS MEJORADO (con canales y roles inmunes)---
     if (config.antilinks_enabled) {
-        const linkRegExp = /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi;
-        if (linkRegExp.test(message.content)) {
-            const whitelist = linkWhitelist.get(message.guild.id) || new Set();
-            const foundLinks = message.content.match(linkRegExp);
+        // Verificar si el canal es immune
+        const isImmuneChannel = config.antilinks_immune_channel === message.channel.id;
+        // Verificar si el miembro tiene rol immune
+        const hasImmuneRole = config.antilinks_immune_role && message.member?.roles.cache.has(config.antilinks_immune_role);
+        
+        if (!isImmuneChannel && !hasImmuneRole) {
+            const linkRegExp = /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/gi;
+            if (linkRegExp.test(message.content)) {
+                const whitelist = linkWhitelist.get(message.guild.id) || new Set();
+                const foundLinks = message.content.match(linkRegExp);
 
-            let shouldDelete = false;
-            for (const link of foundLinks) {
-                try {
-                    const url = new URL(link);
-                    const domain = url.hostname.replace('www.', '');
-                    if (!whitelist.has(domain)) { shouldDelete = true; break; }
-                } catch (e) { shouldDelete = true; break; }
-            }
+                let shouldDelete = false;
+                for (const link of foundLinks) {
+                    try {
+                        const url = new URL(link);
+                        const domain = url.hostname.replace('www.', '');
+                        if (!whitelist.has(domain)) { shouldDelete = true; break; }
+                    } catch (e) { shouldDelete = true; break; }
+                }
 
-            if (shouldDelete) {
-                if (progressiveEnabled) {
-                    await applyProgressivePunishment(message.guild, message.author, "Anti-Link", message, message.content);
-                    return message.channel.send(`<:bankick_icon1:1504606705596498032> ${message.author}, links are not allowed here.`).then(m => setTimeout(() => m.delete(), 3000)).catch(() => null);
-                } else {
-                    await message.delete().catch(() => null);
-                    sendAutoModLog(message.guild, message.author, 'Anti-Link', 'Unauthorized link posted.', message.content);
-                    return message.channel.send(`<:bankick_icon1:1504606705596498032> ${message.author}, links are not allowed here.`)
-                        .then(m => setTimeout(() => m.delete(), 3000));
+                if (shouldDelete) {
+                    if (progressiveEnabled) {
+                        await applyProgressivePunishment(message.guild, message.author, "Anti-Link", message, message.content);
+                        return message.channel.send(`<:bankick_icon1:1504606705596498032> ${message.author}, links are not allowed here.`).then(m => setTimeout(() => m.delete(), 3000)).catch(() => null);
+                    } else {
+                        await message.delete().catch(() => null);
+                        sendAutoModLog(message.guild, message.author, 'Anti-Link', 'Unauthorized link posted.', message.content);
+                        return message.channel.send(`<:bankick_icon1:1504606705596498032> ${message.author}, links are not allowed here.`)
+                            .then(m => setTimeout(() => m.delete(), 3000));
+                    }
                 }
             }
         }
@@ -542,8 +584,11 @@ client.on(Events.InteractionCreate, async interaction => {
 
     if (blacklistedUsers.has(user.id)) return; 
 
+    // Registrar estadística de comando
+    incrementCommandStat(guild.id, commandName);
+
     const isOwner = user.id === OWNER_ID;
-    const isPublic = ['audit', 'flip', 'color', 'infractions', 'ban', 'kick', 'warn', 'timeout', 'embed', 'badwords-list', 'link-whitelist-list', 'mod-status'].includes(commandName);
+    const isPublic = ['audit', 'flip', 'color', 'infractions', 'ban', 'kick', 'warn', 'warn-count', 'timeout', 'embed', 'badwords-list', 'link-whitelist-list', 'mod-status', 'cmd-stats'].includes(commandName);
     await interaction.deferReply({ ephemeral: !isPublic });
 
     const sendGlobalLog = (desc, color) => {
@@ -610,10 +655,22 @@ client.on(Events.InteractionCreate, async interaction => {
             return quickEmbed(`<:check_icon1:1504601887247171605> **Anti-Flood Updated** — ${isEnabled ? 'Enabled' : 'Disabled'}, limit: **${maxDup}** repeated messages.`, isEnabled ? '#2ecc71' : '#e74c3c', true);
         }
 
+        // ========== COMANDO ANTI-LINKS MEJORADO ==========
         if (commandName === 'setup-antilinks') {
             const isEnabled = options.getBoolean('enabled');
-            localConfig.set(guild.id, { ...localConfig.get(guild.id), antilinks_enabled: isEnabled });
-            return quickEmbed(`<:check_icon1:1504601887247171605> **Anti-Link Updated** — The system is now ${isEnabled ? '**enabled**' : '**disabled**'}.`, isEnabled ? '#2ecc71' : '#e74c3c', true);
+            const immuneRole = options.getRole('immune_role');
+            const immuneChannel = options.getChannel('immune_channel');
+            
+            const newConfig = { ...localConfig.get(guild.id), antilinks_enabled: isEnabled };
+            if (immuneRole) newConfig.antilinks_immune_role = immuneRole.id;
+            if (immuneChannel) newConfig.antilinks_immune_channel = immuneChannel.id;
+            localConfig.set(guild.id, newConfig);
+            
+            let extraInfo = '';
+            if (immuneRole) extraInfo += `\nImmune role: ${immuneRole.name}`;
+            if (immuneChannel) extraInfo += `\nImmune channel: ${immuneChannel}`;
+            
+            return quickEmbed(`<:check_icon1:1504601887247171605> **Anti-Link Updated** — System is now ${isEnabled ? '**enabled**' : '**disabled**'}.${extraInfo}`, isEnabled ? '#2ecc71' : '#e74c3c', true);
         }
 
         let currentWhitelist = linkWhitelist.get(guild.id) || new Set();
@@ -647,7 +704,6 @@ client.on(Events.InteractionCreate, async interaction => {
         const enabled = options.getBoolean('enabled');
         let minDays = options.getInteger('min_days');
         if (minDays === null || minDays === undefined) {
-            // Si no se especifica, mantener el valor actual o poner 7 por defecto
             minDays = config.anti_alt_min_days !== undefined ? config.anti_alt_min_days : 7;
         } else if (minDays < 0) {
             return quickEmbed('<:error_icon1:1504603932058714123> Minimum days cannot be negative.', '#ff0000');
@@ -667,39 +723,33 @@ client.on(Events.InteractionCreate, async interaction => {
     if (commandName === 'mod-status') {
         const config = localConfig.get(guild.id) || {};
 
-        // Anti-Spam
         const spamLimit = config.spam_limit || 5;
         const spamSeconds = config.spam_seconds || 5;
         const spamStatus = (spamLimit && spamSeconds) ? '🟢' : '🔴';
 
-        // Anti-Flood
         const floodEnabled = config.flood_enabled || false;
         const floodMax = config.flood_max || 3;
         const floodStatus = floodEnabled ? '🟢' : '🔴';
 
-        // Anti-Links
         const antilinksEnabled = config.antilinks_enabled || false;
+        const antilinksImmuneRole = config.antilinks_immune_role ? `<@&${config.antilinks_immune_role}>` : 'None';
+        const antilinksImmuneChannel = config.antilinks_immune_channel ? `<#${config.antilinks_immune_channel}>` : 'None';
         const antilinksStatus = antilinksEnabled ? '🟢' : '🔴';
 
-        // Anti-Alt
         const antiAltEnabled = config.anti_alt_enabled || false;
         const antiAltMinDays = config.anti_alt_min_days || 7;
         const antiAltStatus = antiAltEnabled ? '🟢' : '🔴';
 
-        // Word Filter
         const wordsMap = forbiddenWords.get(guild.id) || new Map();
         const wordCount = wordsMap.size;
         const wordStatus = wordCount > 0 ? '🟢' : '🔴';
 
-        // Slowmode (canal actual)
         const currentSlowmode = channel.rateLimitPerUser || 0;
         const slowmodeStatus = currentSlowmode > 0 ? `🟢 (${currentSlowmode}s)` : '🔴 (0s)';
 
-        // Progressive Punishment
         const progressiveEnabled = config.progressive_enabled || false;
         const progressiveStatus = progressiveEnabled ? '🟢 (Active)' : '🔴 (Inactive)';
 
-        // Configuración adicional
         const adminRoleId = config.admin_role_id;
         const adminRole = adminRoleId ? guild.roles.cache.get(adminRoleId)?.name || 'Unknown' : 'Not set';
         const logChannelId = config.log_channel;
@@ -710,9 +760,9 @@ client.on(Events.InteractionCreate, async interaction => {
             .setColor('#2ecc71')
             .setDescription('Current status of all protection modules')
             .addFields(
-                { name: '📊 Anti-Spam', value: `${spamStatus} **${spamLimit}** messages / **${spamSeconds}s**`, inline: true },
-                { name: '🌊 Anti-Flood', value: `${floodStatus} **${floodMax}** duplicates (${floodEnabled ? 'on' : 'off'})`, inline: true },
-                { name: '🔗 Anti-Links', value: `${antilinksStatus} ${antilinksEnabled ? 'Active' : 'Disabled'}`, inline: true },
+                { name: '📊 Anti-Spam', value: `${spamStatus} **${spamLimit}** msgs / **${spamSeconds}s**`, inline: true },
+                { name: '🌊 Anti-Flood', value: `${floodStatus} **${floodMax}** duplicates`, inline: true },
+                { name: '🔗 Anti-Links', value: `${antilinksStatus} ${antilinksEnabled ? 'Active' : 'Disabled'}\nImmune Role: ${antilinksImmuneRole}\nImmune Channel: ${antilinksImmuneChannel}`, inline: true },
                 { name: '🆕 Anti-Alt', value: `${antiAltStatus} ${antiAltEnabled ? `${antiAltMinDays} days min` : 'Disabled'}`, inline: true },
                 { name: '📝 Word Filter', value: `${wordStatus} **${wordCount}** blocked words`, inline: true },
                 { name: '⏱️ Slowmode (this channel)', value: slowmodeStatus, inline: true },
@@ -740,6 +790,50 @@ client.on(Events.InteractionCreate, async interaction => {
             `(Strikes decay after 24h: 1st → delete, 2nd → warn, 3rd → 5min timeout, 4th+ → increasing timeouts)`,
             enabled ? '#2ecc71' : '#e74c3c', true
         );
+    }
+
+    // --- NUEVO COMANDO CMD-STATS ---
+    if (commandName === 'cmd-stats') {
+        const stats = getCommandStats(guild.id);
+        if (stats.length === 0) {
+            return quickEmbed('No command usage recorded yet.', '#3498db');
+        }
+        const statsText = stats.slice(0, 15).map((s, i) => `**${i+1}.** \`${s.cmdName}\` — ${s.count} uses`).join('\n');
+        const embed = new EmbedBuilder()
+            .setTitle('📊 Command Usage Statistics')
+            .setDescription(statsText)
+            .setColor('#3498db')
+            .setFooter({ text: `Total unique commands: ${stats.length}` })
+            .setTimestamp();
+        return interaction.editReply({ embeds: [embed] });
+    }
+
+    // --- NUEVO COMANDO WARN-COUNT ---
+    if (commandName === 'warn-count') {
+        const target = options.getUser('user');
+        const warns = localWarns.get(target.id) || [];
+        return quickEmbed(`**${target.tag}** has **${warns.length}** warning(s).`, '#f1c40f');
+    }
+
+    // --- NUEVO COMANDO DELWARN (eliminar warn específico) ---
+    if (commandName === 'delwarn') {
+        const config = localConfig.get(guild.id);
+        const hasAuth = isOwner || member.permissions.has(PermissionFlagsBits.ManageMessages) || (config && member.roles.cache.has(config.admin_role_id));
+        if (!hasAuth) return quickEmbed('<:error_icon1:1504603932058714123> You do not have permission to manage warnings.', '#ff0000');
+
+        const target = options.getUser('user');
+        const warnNumber = options.getInteger('warn_number');
+        const warns = localWarns.get(target.id) || [];
+        
+        if (warnNumber < 1 || warnNumber > warns.length) {
+            return quickEmbed(`<:error_icon1:1504603932058714123> Invalid warn number. User has ${warns.length} warning(s).`, '#ff0000');
+        }
+        
+        const removed = warns.splice(warnNumber - 1, 1)[0];
+        localWarns.set(target.id, warns);
+        
+        sendGlobalLog(`**Warning Removed**\nUser: ${target.tag} (${target.id})\nRemoved warning #${warnNumber}: ${removed.reason} (${removed.date})\nRemaining warnings: ${warns.length}`, '#3498db');
+        return quickEmbed(`<:check_icon1:1504601887247171605> Removed warning #${warnNumber} from **${target.tag}**. Remaining warnings: ${warns.length}`, '#2ecc71');
     }
 
     // --- MASTER COMMAND: EVAL ---
@@ -810,7 +904,7 @@ client.on(Events.InteractionCreate, async interaction => {
     const config = localConfig.get(guild.id);
     const hasAuth = isOwner || member.permissions.has(PermissionFlagsBits.Administrator) || (config && member.roles.cache.has(config.admin_role_id));
 
-    if (!['audit', 'flip', 'color', 'embed', 'badwords-list', 'link-whitelist-list', 'mod-status'].includes(commandName) && !hasAuth) {
+    if (!['audit', 'flip', 'color', 'embed', 'badwords-list', 'link-whitelist-list', 'mod-status', 'cmd-stats', 'warn-count'].includes(commandName) && !hasAuth) {
         return quickEmbed('<:error_icon1:1504603932058714123> Unauthorized access.', '#ff0000');
     }
 
@@ -818,6 +912,11 @@ client.on(Events.InteractionCreate, async interaction => {
         switch (commandName) {
             case 'slowmode':
                 const seconds = options.getInteger('seconds');
+                if (seconds === null || seconds === undefined) {
+                    // Modo vista: mostrar slowmode actual
+                    const currentSlow = channel.rateLimitPerUser || 0;
+                    return quickEmbed(`Current slowmode in ${channel} is **${currentSlow} seconds**.`, '#3498db');
+                }
                 const sReason = options.getString('reason') || 'No reason provided';
                 await channel.setRateLimitPerUser(seconds, sReason);
                 return quickEmbed(`<:timeout_icon1:1504605891087958147> **Slowmode Updated** — Set to **${seconds}** seconds.\n**Reason:** ${sReason}`, '#3498db', true);
