@@ -31,11 +31,59 @@ const normalize = (text) => {
         .split(/\s+/);
 };
 
+// ============================================================
+// SISTEMA ANTI-BYPASS ULTRA AVANZADO PARA NIVEL 3
+// Detecta leet speak, caracteres repetidos, inserciones de símbolos,
+// sustituciones múltiples, números confusos, etc.
+// ============================================================
 const bypassCheck = (text) => {
-    return text.toLowerCase()
-        .replace(/0/g, 'o').replace(/1/g, 'i').replace(/3/g, 'e')
-        .replace(/4/g, 'a').replace(/5/g, 's').replace(/7/g, 't')
-        .replace(/8/g, 'b').replace(/v/g, 'u').replace(/\W|_/g, '');
+    let processed = text.toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, ""); // elimina acentos
+
+    // Tabla de reemplazos leet (multiples pasadas para combos como "c0d3" -> "code")
+    const leetMap = new Map([
+        ['0', 'o'], ['1', 'i'], ['1', 'l'], // 1 puede ser i o l
+        ['2', 'z'], ['3', 'e'], ['4', 'a'], ['5', 's'],
+        ['6', 'b'], ['6', 'g'], // 6 puede ser b o g
+        ['7', 't'], ['8', 'b'], ['9', 'g'], ['9', 'q'],
+        ['@', 'a'], ['$', 's'], ['¡', 'i'], ['!', 'i'],
+        ['#', 'h'], ['+', 't'], ['<', 'c'], ['>', 'c'],
+        ['(', 'c'], [')', 'c'], ['&', 'e'], ['%', 'o'],
+        ['*', 'x'], ['v', 'u'], ['\\|', 'l'], ['\\[', 'l'], ['\\]', 'l']
+    ]);
+
+    // Aplicar reemplazos múltiples veces hasta que no cambie (para casos como "c0d3")
+    let changed = true;
+    let iterations = 0;
+    while (changed && iterations < 5) {
+        changed = false;
+        for (const [leet, letter] of leetMap) {
+            const regex = new RegExp(leet, 'g');
+            const newText = processed.replace(regex, letter);
+            if (newText !== processed) {
+                processed = newText;
+                changed = true;
+            }
+        }
+        iterations++;
+    }
+
+    // Eliminar cualquier carácter que NO sea letra a-z o número
+    // Esto hace que "p.a.l.a.b.r.a" o "pa-la-bra" se conviertan en "palabra"
+    processed = processed.replace(/[^a-z0-9]/g, '');
+
+    // Colapsar letras repetidas consecutivas (ej: "pppaaalllabra" -> "palabra")
+    // pero manteniendo al menos una ocurrencia
+    processed = processed.replace(/([a-z])\1{2,}/g, (match, char) => {
+        // si se repite más de 2 veces, lo dejamos con una sola
+        return char;
+    });
+
+    // Extra: también colapsar números repetidos (menos común, pero por si acaso)
+    processed = processed.replace(/([0-9])\1{2,}/g, (match, num) => num);
+
+    return processed;
 };
 
 const sendAutoModLog = (guild, user, action, reason, content, color = '#ff9900') => {
